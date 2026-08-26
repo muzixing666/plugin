@@ -8,13 +8,9 @@
 # [rule: ^(登陆)$]
 # [rule: ^(上车)$]
 # [rule: ^(京东续期)$]
-# [disable: false]
-# [platform: qq,qb,wx,tb,tg,web,wxmp,dd,fs]
-# [version: 4.0.0]
-# [author: ChatGPT]
+# [author: Muzixing]
 # [title: 京东微信登录]
-# [description: 京东微信登录<br>仅保留微信Code/YYB Go登录及京东续期。支持微信扫码绑定、YYB账号管理、单账号续期、一键续期、管理员批量续期、自动续期、京东CK有效性检测、双通道换CK、短信/人脸验证提示、代理及青龙写入。]
-
+# [description: 京东微信登录插件<br>指令:登录/登陆/上车/京东续期<br>✨ 仅保留微信Code/YYB Go微信登录及京东续期<br>✨ 支持微信扫码绑定、YYB账号管理、单账号续期、一键续期、管理员批量续期、自动续期<br>✨ 支持京东CK有效性检测、双通道换CK、短信/人脸验证、代理及青龙写入。]
 # ===================== YYB / 微信Code配置 =====================
 # [param: {"required":false,"key":"jd_code_config.codeServerUrl","bool":false,"placeholder":"http://192.168.1.10:8000","name":"YYB Go服务地址","desc":"YYB Go API地址，例如 http://192.168.1.10:8000"}]
 # [param: {"required":false,"key":"jd_code_config.codeApiType","bool":false,"placeholder":"yyb","name":"Code接口模式","desc":"yyb=YYB Go完整模式；simple=仅/login获取Code。续期、绑定、账号管理必须使用yyb"}]
