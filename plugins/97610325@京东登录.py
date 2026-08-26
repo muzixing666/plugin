@@ -11,7 +11,7 @@
 # [disable: false]
 # [platform: qq,qb,wx,tb,tg,web,wxmp,dd,fs]
 # [version: 3.3.1]
-# [author: 97610325]
+# [author: Muzixing]
 # [price: 49.9]
 # [title: 京东登录]
 # [icon: https://nos.netease.com/ysf/163f467c1927aac084ffea14e4cdea79.png]
