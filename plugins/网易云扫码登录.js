@@ -6,7 +6,7 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.8.1]
+// [version: 1.9.0]
 // [author: muzixing666]
 // [description: 支持网易云登录、官方账号资产及任务状态查询、删除青龙绑定。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
@@ -171,12 +171,17 @@ function cookieFromResponse(result) {
   const item = (result.cookies || []).find(c => /^MUSIC_U=/i.test(c));
   return item ? extractMusicU(item) : '';
 }
-async function saveLogin(sender, ql, owner, value) {
+async function saveLogin(sender, ql, owner, value, cookieContent = "", syncNCMM = false) {
   if (!value) throw new Error('未取得有效的 MUSIC_U，青龙变量未修改');
   const account = await music('nuser/account/get', {}, value);
   const uid = account.data && account.data.account && account.data.account.id;
   if (account.data.code !== 200 || !uid) throw new Error('登录信息无效或已过期，青龙变量未修改');
   const action = await qinglong(ql, value, String(uid), owner);
+  if (syncNCMM) {
+    try { await syncCookieToNCMM(owner, String(uid), cookieContent || ('MUSIC_U=' + value)); }
+    catch (_) { await sender.reply('网易云登录成功，青龙变量已'+action+'；同步账号中心失败，请联系管理员检查账号中心配置。'); return; }
+    await sender.reply('网易云登录成功，已绑定当前用户并同步青龙与账号中心。'); return;
+  }
   await sender.reply('网易云登录成功，已绑定当前用户并' + action + '青龙变量 NETEASE_MUSIC_U。');
 }
 async function privateInput(sender, prompt, timeout = 120000) {
@@ -191,7 +196,7 @@ async function cookieLogin(sender, ql, owner) {
   if (!input) return;
   const value = extractMusicU(input);
   if (!value) { await sender.reply('未找到有效的 MUSIC_U，请检查输入后重试。'); return; }
-  await saveLogin(sender, ql, owner, value);
+  await saveLogin(sender, ql, owner, value, input.includes("=") ? input : "MUSIC_U=" + value, true);
 }
 async function ncmmLogin() {
   const base = String(await middleware.bucketGet('netease_login', 'ncmm_url') || '').trim().replace(/\/+$/, '');
@@ -206,6 +211,13 @@ async function ncmmLogin() {
 }
 async function ncmmPost(ncmm, endpoint, data) {
   return (await request(ncmm.base + endpoint, {method:'POST', headers:ncmm.headers, body:JSON.stringify(data)})).data;
+}
+async function syncCookieToNCMM(owner, uid, content) {
+  const ncmm=await ncmmLogin();
+  const identity=crypto.createHash('sha256').update(JSON.stringify([owner.platform,owner.user,uid])).digest('hex').slice(0,24);
+  const filename='yuhua_cookie_'+identity+'.json';
+  const result=await ncmmPost(ncmm,'/api/v1/accounts/cookie',{content,format:'auto',filename,main:false});
+  if(result?.filename && result.filename!==filename) throw new Error('账号文件名不匹配');
 }
 async function phoneLogin(sender, ql, owner) {
   const ncmm = await ncmmLogin();
@@ -275,7 +287,8 @@ async function main() {
       if (code === 800) { await sender.reply('二维码已过期，请重新发送“网易云登录”。'); return; }
       if (code === 802 && !scanned) { scanned = true; await sender.reply('已扫码，请在网易云音乐 App 中确认。'); }
       if (code === 803) {
-        await saveLogin(sender, ql, owner, cookieFromResponse(result)); return;
+        const cookie = result.cookies.map(c=>String(c).split(';')[0]).filter(c=>/^(MUSIC_U|__csrf)=/i.test(c)).join('; ');
+        await saveLogin(sender, ql, owner, cookieFromResponse(result), cookie, true); return;
       }
       if (![801,802].includes(code)) throw new Error('网易云登录状态异常（' + String(code) + '）');
     }
