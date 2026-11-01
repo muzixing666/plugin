@@ -5,20 +5,14 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 1.4.0]
+// [version: 2.0.0]
 // [author: muzixing666]
-// [description: 发送菜单查看插件列表；标题、页脚、隐藏项目和项目简介可在设置中修改。]
-// [param: {"required":false,"key":"simple_menu.panel_url","bool":false,"name":"面板内部地址","placeholder":"http://127.0.0.1:6060","desc":"默认使用羽化面板容器内部地址，无需填写。"}]
-// [param: {"required":false,"key":"simple_menu.title","bool":false,"name":"菜单标题","placeholder":"📋 功能菜单","desc":"一级菜单顶部的文字。"}]
-// [param: {"required":false,"key":"simple_menu.footer","bool":false,"name":"菜单提示","placeholder":"回复编号查看介绍和指令；q 退出。","desc":"一级菜单底部显示的文字。"}]
-// [param: {"required":false,"key":"simple_menu.hidden","bool":false,"name":"隐藏项目","placeholder":"项目一,项目二","desc":"按插件标题填写，多个标题用逗号或中文逗号分隔。"}]
-// [param: {"required":false,"key":"simple_menu.intros","bool":false,"name":"自定义项目简介","placeholder":"网易云扫码登录=登录网易云并查询账号；京东登录=京东账号登录","desc":"格式：插件标题=简介；多个用中文分号分隔。未填写的项目使用插件原有介绍。"}]
-// [param: {"required":false,"key":"simple_menu.names","bool":false,"name":"自定义项目名称","placeholder":"原插件标题=显示名称；另一标题=新名称","desc":"多个项目用中文分号分隔；左边填写插件原始标题。"}]
-// [param: {"required":false,"key":"simple_menu.commands","bool":false,"name":"自定义项目指令","placeholder":"原插件标题=指令一,指令二；另一标题=指令三","desc":"多个指令用逗号分隔，不同项目用中文分号分隔；仅修改菜单展示，不会修改实际触发规则。"}]
-// [param: {"required":false,"key":"simple_menu.order","bool":false,"name":"项目显示顺序","placeholder":"项目一,项目二,项目三","desc":"按插件原始标题填写，多个用逗号分隔；未列出项目排在后面。"}]
+// [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { SillyGirlPluginConfig } = require('sillygirl');
 const middleware = require('middleware');
 
 function branches(text) {
@@ -93,11 +87,11 @@ function visibleRows(rows, meta, platform, admin, settings={}) {
     if(![2,6].includes(Number(p.status)) || p.disable || (!admin && (p.admin_only || p.public === false))) continue;
     const title=String(p.title||'').trim(); if(!title || title==='简洁功能菜单' || hidden.has(title)) continue;
     const sources=meta.get(title)||[];
-    if(sources.length && !sources.some(x=>!x.hidden && (!x.platforms || x.platforms.includes(platform)))) continue;
+    if(sources.length && !sources.some(x=>!x.hidden && (!platform || !x.platforms || x.platforms.includes(platform)))) continue;
     const list=Object.prototype.hasOwnProperty.call(customCommands,title) ? customCommands[title].split(/[,，、]/).map(x=>x.trim()).filter(Boolean) : commands(p.rule);
     if(!list.length) continue;
     const displayName=String(names[title] || title).replace(/[\r\n]/g,' ').slice(0,80);
-    output.push({title:displayName,originalTitle:title,commands:list,description:briefDescription(intros[title] || p.desc)});
+    output.push({title:displayName,originalTitle:title,sourceId:String(p.id || title),commands:list,description:briefDescription(intros[title] || p.desc)});
   }
   return output.sort((a,b)=>{const ai=order.indexOf(a.originalTitle),bi=order.indexOf(b.originalTitle); if(ai!==bi) return (ai<0?Infinity:ai)-(bi<0?Infinity:bi); return a.title.localeCompare(b.title,'zh-CN');});
 }
@@ -125,28 +119,99 @@ async function showMenu(sender, plugins, settings={}) {
     await sender.reply('请输入菜单编号，或发送 q 退出。');
   }
 }
+async function fetchRows(base) {
+  const u=new URL(base);if(!['http:','https:'].includes(u.protocol)) throw new Error('面板地址无效');
+  const rows=[];let current=1,total=0;
+  do {
+    const url=base+'/api/plugins/list.json?current='+current+'&pageSize=500&activeKey=installed';
+    const response=await fetch(url,{signal:AbortSignal.timeout(8000)});
+    if(!response.ok) throw new Error('插件列表不可用');
+    const payload=await response.json(),data=payload?.data;
+    if(!Array.isArray(data?.data)) throw new Error('插件列表格式异常');
+    rows.push(...data.data);total=Number(data.total)||0;current++;
+    if(!data.data.length) break;
+  } while(rows.length<total && current<=10);
+  return rows;
+}
+function fieldKey(item) {return 'item_'+crypto.createHash('sha256').update(item.sourceId).digest('hex').slice(0,16);}
+function valueOr(values,key,fallback) {return Object.prototype.hasOwnProperty.call(values || {},key) ? values[key] : fallback;}
+function schemaFor(items,legacy={},customCount=3) {
+  const prop={
+    panel_url:{type:'string',title:'面板内部地址',default:String(legacy.panel_url || 'http://127.0.0.1:6060'),description:'插件列表地址，一般无需修改。'},
+    menu_title:{type:'string',title:'菜单标题',default:String(legacy.title || '📋 功能菜单')},
+    menu_footer:{type:'string',title:'菜单提示',default:String(legacy.footer || '回复编号查看介绍和指令；q 退出。')},
+    custom_count:{type:'string',title:'自定义项目数量',default:'3',description:'默认 3 项，最多 20 项。修改数量并保存后，发送一次“菜单”，重新打开设置即可看到新项目。'},
+  };
+  const oldItems=new Map(visibleRows(items.rows,items.meta,'',true,legacy).map(x=>[x.originalTitle,x]));
+  const all=visibleRows(items.rows,items.meta,'',true,{});
+  all.forEach((item,i)=>{
+    const key=fieldKey(item),old=oldItems.get(item.originalTitle),base=old || item;
+    prop['group_'+key]={type:'null',title:'自动项目：'+item.originalTitle,'x-autman-spliter':true};
+    prop[key+'_enabled']={type:'boolean',title:'显示 '+item.originalTitle,default:!!old || !String(legacy.hidden||'').split(/[,，;；\n]/).map(x=>x.trim()).includes(item.originalTitle)};
+    prop[key+'_title']={type:'string',title:item.originalTitle+' · 显示名称',default:base.title};
+    prop[key+'_intro']={type:'string',title:item.originalTitle+' · 简介',default:base.description};
+    prop[key+'_commands']={type:'string',title:item.originalTitle+' · 指令',default:base.commands.join('，'),description:'用逗号分隔；仅修改显示，不会修改插件的实际指令。'};
+    prop[key+'_order']={type:'string',title:item.originalTitle+' · 顺序',default:String((old ? Array.from(oldItems.keys()).indexOf(item.originalTitle) : i)+1),description:'数字越小越靠前。'};
+  });
+  for(let i=1;i<=customCount;i++) {
+    const key='custom_'+i;
+    prop['group_'+key]={type:'null',title:'自定义项目 '+i,'x-autman-spliter':true};
+    prop[key+'_enabled']={type:'boolean',title:'启用自定义项目 '+i,default:false};
+    prop[key+'_title']={type:'string',title:'自定义项目 '+i+' · 名称',default:''};
+    prop[key+'_intro']={type:'string',title:'自定义项目 '+i+' · 简介',default:''};
+    prop[key+'_commands']={type:'string',title:'自定义项目 '+i+' · 指令',default:'',description:'用逗号分隔；需要已存在的插件响应相应指令。'};
+    prop[key+'_order']={type:'string',title:'自定义项目 '+i+' · 顺序',default:String(1000+i)};
+  }
+  return {type:'object',properties:prop};
+}
+function defaultValues(schema) {const out={};for(const [k,v] of Object.entries(schema.properties))if(Object.prototype.hasOwnProperty.call(v,'default'))out[k]=v.default;return out;}
+function renderedItems(rows,meta,platform,admin,values,schema,customCount) {
+  const defaults=defaultValues(schema), all=visibleRows(rows,meta,platform,admin,{}), out=[];
+  for(const item of all) {
+    const key=fieldKey(item), get=suffix=>valueOr(values,key+'_'+suffix,defaults[key+'_'+suffix]);
+    if(!get('enabled')) continue;
+    const title=String(get('title') || '').trim(), list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean);
+    if(!title || !list.length) continue;
+    out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
+  }
+  for(let i=1;i<=customCount;i++) {
+    const key='custom_'+i,get=suffix=>valueOr(values,key+'_'+suffix,defaults[key+'_'+suffix]);
+    if(!get('enabled')) continue;
+    const title=String(get('title') || '').trim(),list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean);
+    if(title && list.length) out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
+  }
+  return out.sort((a,b)=>a.order-b.order || a.title.localeCompare(b.title,'zh-CN'));
+}
+async function legacySettings() {
+  const keys=['panel_url','title','footer','hidden','intros','names','commands','order'];
+  const result={};for(const key of keys) {try{result[key]=await middleware.bucketGet('simple_menu',key);}catch(_){}}
+  return result;
+}
+function customCount(value) {const n=Number.parseInt(String(value || '3'),10);return Number.isFinite(n)?Math.max(1,Math.min(20,n)):3;}
+async function prepareConfig(registerOnly=false) {
+  const legacy=registerOnly?{}:await legacySettings();
+  let prior={};
+  try {if(!registerOnly && process.env.PLUGIN_CONFIG_JSON) prior=JSON.parse(process.env.PLUGIN_CONFIG_JSON);}catch(_){}
+  const base=String(prior.panel_url || legacy.panel_url || 'http://127.0.0.1:6060').trim().replace(/\/+$/,'');
+  const rows=await fetchRows(base),meta=sourceMetadata('/data/plugins'),items={rows,meta};
+  let schema=schemaFor(items,legacy,3), cfg=new SillyGirlPluginConfig(schema);
+  if(registerOnly) return {rows,meta,schema,values:{},count:3};
+  let values=await cfg.get();const count=customCount(values.custom_count);
+  if(count!==3) {schema=schemaFor(items,legacy,count);cfg=new SillyGirlPluginConfig(schema);values=await cfg.get();}
+  return {rows,meta,schema,values:values || {},count};
+}
 async function main() {
   const sender=new middleware.Sender(middleware.getSenderID());
-  const platform=String(await sender.getImtype() || '').toLowerCase(); const admin=!!(await sender.isAdmin());
-  const values=await Promise.all(['panel_url','title','footer','hidden','intros','names','commands','order'].map(k=>middleware.bucketGet('simple_menu',k)));
-  const [panel_url,title,footer,hidden,intros,names,commands,order]=values; const settings={title,footer,hidden,intros,names,commands,order};
-  const base=String(panel_url || 'http://127.0.0.1:6060').trim().replace(/\/+$/,'');
   try {
-    const u=new URL(base); if(!['http:','https:'].includes(u.protocol)) throw new Error('地址无效');
-    const rows=[]; let current=1,total=0;
-    do {
-      const url=base+'/api/plugins/list.json?current='+current+'&pageSize=500&activeKey=installed';
-      const response=await fetch(url,{signal:AbortSignal.timeout(8000)});
-      if(!response.ok) throw new Error('插件列表不可用');
-      const payload=await response.json(), data=payload?.data;
-      if(!Array.isArray(data?.data)) throw new Error('插件列表格式异常');
-      rows.push(...data.data); total=Number(data.total)||0; current++;
-      if(!data.data.length) break;
-    } while(rows.length<total && current<=10);
-    const plugins=visibleRows(rows,sourceMetadata('/data/plugins'),platform,admin,settings);
-    if(!plugins.length) {await sender.reply('暂无可展示的插件指令。'); return;}
+    const platform=String(await sender.getImtype() || '').toLowerCase(),admin=!!(await sender.isAdmin());
+    const {rows,meta,schema,values,count}=await prepareConfig(false);
+    const plugins=renderedItems(rows,meta,platform,admin,values,schema,count);
+    if(!plugins.length) {await sender.reply('暂无可展示的插件指令。');return;}
+    const defaults=defaultValues(schema),settings={title:valueOr(values,'menu_title',defaults.menu_title),footer:valueOr(values,'menu_footer',defaults.menu_footer)};
     await showMenu(sender,plugins,settings);
-  } catch (_) { await sender.reply('暂时无法读取插件列表，请稍后再试。'); }
+  } catch (_) {await sender.reply('暂时无法读取插件列表或配置，请稍后再试。');}
 }
-if(require.main===module) main().catch(()=>{});
-
+if(require.main===module) {
+  if(process.env.SILLYGIRL_CONFIG_REGISTER_ONLY==='true') prepareConfig(true).catch(()=>{});
+  else main().catch(()=>{});
+}
