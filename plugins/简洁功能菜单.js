@@ -5,9 +5,9 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 1.1.0]
+// [version: 1.2.0]
 // [author: muzixing666]
-// [description: 发送功能菜单，按编号查看已启用插件的指令。]
+// [description: 发送功能菜单，查看全部插件名称，按编号查看简介和指令。]
 // [param: {"required":false,"key":"simple_menu.panel_url","bool":false,"name":"面板内部地址","placeholder":"http://127.0.0.1:6060","desc":"默认使用羽化面板容器内部地址，无需填写。"}]
 'use strict';
 const fs = require('fs');
@@ -70,6 +70,12 @@ function sourceMetadata(dir) {
   } catch (_) {}
   return out;
 }
+function briefDescription(value) {
+  const text=String(value || '').replace(/<\s*br\s*\/?\s*>/gi,'。').replace(/<[^>]*>/g,' ').replace(/https?:\/\/\S+/gi,'').replace(/&nbsp;|&#160;/gi,' ').replace(/&amp;/gi,'&').replace(/[❶❷❸❹❺]/g,' ').replace(/\s+/g,' ').trim();
+  if(!text) return '暂无介绍';
+  const first=text.split(/[。；;]/).map(x=>x.trim()).find(Boolean) || text;
+  const chars=Array.from(first); return chars.length>70?chars.slice(0,70).join('')+'…':first;
+}
 function visibleRows(rows, meta, platform, admin) {
   const output=[];
   for(const p of rows) {
@@ -78,29 +84,29 @@ function visibleRows(rows, meta, platform, admin) {
     const sources=meta.get(title)||[];
     if(sources.length && !sources.some(x=>!x.hidden && (!x.platforms || x.platforms.includes(platform)))) continue;
     const list=commands(p.rule); if(!list.length) continue;
-    output.push({title,commands:list});
+    output.push({title,commands:list,description:briefDescription(p.desc)});
   }
   return output.sort((a,b)=>a.title.localeCompare(b.title,'zh-CN'));
 }
 async function showMenu(sender, plugins) {
-  const pageSize=8, pageCount=Math.ceil(plugins.length/pageSize);
-  let page=0;
   const chat=String(await sender.getChatID() || '').trim();
   while(true) {
-    const start=page*pageSize;
-    const lines=['📋 功能菜单（'+(page+1)+'/'+pageCount+'）'];
-    for(let i=start;i<Math.min(start+pageSize,plugins.length);i++) lines.push((i+1)+'. '+plugins[i].title);
-    lines.push('\n回复编号查看指令'+(pageCount>1?'；n 下一页，p 上一页':'')+'；q 退出。');
-    await sender.reply(lines.join('\n'));
+    const lines=['📋 功能菜单'];
+    for(let i=0;i<plugins.length;i++) lines.push((i+1)+'. '+plugins[i].title);
+    lines.push('\n回复编号查看介绍和指令；q 退出。');
+    let part='';
+    for(const line of lines) {
+      if(part && part.length+line.length+1>3000) {await sender.reply(part);part='';}
+      part+=(part?'\n':'')+line;
+    }
+    if(part) await sender.reply(part);
     const input=String(await sender.input(60000,0,!!chat && chat!=='0') || '').trim().toLowerCase();
     if(!input) {await sender.reply('菜单已超时退出。'); return;}
     if(['q','取消','退出'].includes(input)) {await sender.reply('已退出菜单。'); return;}
-    if(input==='n' && pageCount>1) {page=Math.min(page+1,pageCount-1);continue;}
-    if(input==='p' && pageCount>1) {page=Math.max(page-1,0);continue;}
     const n=/^[1-9][0-9]*$/.test(input)?Number(input):0;
     if(n>=1 && n<=plugins.length) {
       const selected=plugins[n-1];
-      await sender.reply('【'+selected.title+'】\n'+selected.commands.join('\n')+'\n\n发送对应指令即可使用；发送“功能菜单”返回菜单。');
+      await sender.reply('【'+selected.title+'】\n'+selected.description+'\n\n指令：\n'+selected.commands.join('\n')+'\n\n发送对应指令即可使用；发送“功能菜单”返回菜单。');
       return;
     }
     await sender.reply('请输入菜单编号，或发送 q 退出。');
