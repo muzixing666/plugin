@@ -5,7 +5,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.1.0]
+// [version: 2.2.0]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
@@ -135,8 +135,9 @@ async function fetchRows(base) {
 }
 function fieldKey(item) {return 'item_'+crypto.createHash('sha256').update(item.sourceId).digest('hex').slice(0,16);}
 function valueOr(values,key,fallback) {return Object.prototype.hasOwnProperty.call(values || {},key) ? values[key] : fallback;}
-function schemaFor(items,legacy={},customCount=3, selected="") {
+function schemaFor(items,legacy={},customCount=3) {
   const prop={
+    group_basics:{type:'null',title:'基本设置','x-autman-spliter':true},
     panel_url:{type:'string',title:'面板内部地址',default:String(legacy.panel_url || 'http://127.0.0.1:6060'),description:'插件列表地址，一般无需修改。'},
     menu_title:{type:'string',title:'菜单标题',default:String(legacy.title || '📋 功能菜单')},
     menu_footer:{type:'string',title:'菜单提示',default:String(legacy.footer || '回复编号查看介绍和指令；q 退出。')},
@@ -144,27 +145,23 @@ function schemaFor(items,legacy={},customCount=3, selected="") {
   };
   const oldItems=new Map(visibleRows(items.rows,items.meta,'',true,legacy).map(x=>[x.originalTitle,x]));
   const all=visibleRows(items.rows,items.meta,'',true,{});
-  const options=all.map(item=>({value:fieldKey(item),label:item.originalTitle})).concat(Array.from({length:customCount},(_,i)=>({value:'custom_'+(i+1),label:'自定义项目 '+(i+1)})));
-  prop.edit_item={type:'string',title:'选择要编辑的项目',enum:['',...options.map(x=>x.value)],enumNames:['请选择',...options.map(x=>x.label)],default:'',description:'选择并保存后，发送一次“菜单”，再重新打开配置页进行编辑。'};
   all.forEach((item,i)=>{
     const key=fieldKey(item),old=oldItems.get(item.originalTitle),base=old || item;
-    if(selected!==key) return;
-    prop['group_'+key]={type:'null',title:'自动项目：'+item.originalTitle,'x-autman-spliter':true};
-    prop[key+'_enabled']={type:'boolean',title:'显示 '+item.originalTitle,default:!!old || !String(legacy.hidden||'').split(/[,，;；\n]/).map(x=>x.trim()).includes(item.originalTitle)};
-    prop[key+'_title']={type:'string',title:item.originalTitle+' · 显示名称',default:base.title};
-    prop[key+'_intro']={type:'string',title:item.originalTitle+' · 简介',default:base.description};
-    prop[key+'_commands']={type:'string',title:item.originalTitle+' · 指令',default:base.commands.join('，'),description:'用逗号分隔；仅修改显示，不会修改插件的实际指令。'};
-    prop[key+'_order']={type:'string',title:item.originalTitle+' · 顺序',default:String((old ? Array.from(oldItems.keys()).indexOf(item.originalTitle) : i)+1),description:'数字越小越靠前。'};
+    prop['group_'+key]={type:'null',title:'📌 '+item.originalTitle,'x-autman-spliter':true};
+    prop[key+'_enabled']={type:'boolean',title:'显示此项目',default:!!old || !String(legacy.hidden||'').split(/[,，;；\n]/).map(x=>x.trim()).includes(item.originalTitle)};
+    prop[key+'_title']={type:'string',title:'名称',default:base.title};
+    prop[key+'_intro']={type:'string',title:'简介',default:base.description};
+    prop[key+'_commands']={type:'string',title:'指令',default:base.commands.join('，'),description:'用逗号分隔；仅修改显示，不会修改插件的实际指令。'};
+    prop[key+'_order']={type:'string',title:'排序',default:String((old ? Array.from(oldItems.keys()).indexOf(item.originalTitle) : i)+1),description:'数字越小越靠前。'};
   });
   for(let i=1;i<=customCount;i++) {
     const key='custom_'+i;
-    if(selected!==key) continue;
-    prop['group_'+key]={type:'null',title:'自定义项目 '+i,'x-autman-spliter':true};
-    prop[key+'_enabled']={type:'boolean',title:'启用自定义项目 '+i,default:false};
-    prop[key+'_title']={type:'string',title:'自定义项目 '+i+' · 名称',default:''};
-    prop[key+'_intro']={type:'string',title:'自定义项目 '+i+' · 简介',default:''};
-    prop[key+'_commands']={type:'string',title:'自定义项目 '+i+' · 指令',default:'',description:'用逗号分隔；需要已存在的插件响应相应指令。'};
-    prop[key+'_order']={type:'string',title:'自定义项目 '+i+' · 顺序',default:String(1000+i)};
+    prop['group_'+key]={type:'null',title:'✏️ 自定义项目 '+i,'x-autman-spliter':true};
+    prop[key+'_enabled']={type:'boolean',title:'启用此项目',default:false};
+    prop[key+'_title']={type:'string',title:'名称',default:''};
+    prop[key+'_intro']={type:'string',title:'简介',default:''};
+    prop[key+'_commands']={type:'string',title:'指令',default:'',description:'用逗号分隔；需要已存在的插件响应相应指令。'};
+    prop[key+'_order']={type:'string',title:'排序',default:String(1000+i)};
   }
   return {type:'object',properties:prop};
 }
@@ -198,15 +195,11 @@ async function prepareConfig(registerOnly=false) {
   try {if(!registerOnly && process.env.PLUGIN_CONFIG_JSON) prior=JSON.parse(process.env.PLUGIN_CONFIG_JSON);}catch(_){}
   const base=String(prior.panel_url || legacy.panel_url || 'http://127.0.0.1:6060').trim().replace(/\/+$/,'');
   const rows=await fetchRows(base),meta=sourceMetadata('/data/plugins'),items={rows,meta};
-  let schema=schemaFor(items,legacy,3,''), cfg=new SillyGirlPluginConfig(schema);
+  let schema=schemaFor(items,legacy,3), cfg=new SillyGirlPluginConfig(schema);
   if(registerOnly) return {rows,meta,schema,values:{},count:3};
-  let values=await cfg.get();const count=customCount(values.custom_count), selected=String(values.edit_item || '');
-  schema=schemaFor(items,legacy,count,selected);cfg=new SillyGirlPluginConfig(schema);values=await cfg.get();
-  const fullSchemaItems=visibleRows(rows,meta,'',true,{});
-  const fullProperties={...schema.properties};
-  for(const item of fullSchemaItems) Object.assign(fullProperties,schemaFor(items,legacy,count,fieldKey(item)).properties);
-  for(let i=1;i<=count;i++) Object.assign(fullProperties,schemaFor(items,legacy,count,'custom_'+i).properties);
-  return {rows,meta,schema:{type:'object',properties:fullProperties},values:values || {},count};
+  let values=await cfg.get();const count=customCount(values.custom_count);
+  if(count!==3) {schema=schemaFor(items,legacy,count);cfg=new SillyGirlPluginConfig(schema);values=await cfg.get();}
+  return {rows,meta,schema,values:values || {},count};
 }
 async function main() {
   const sender=new middleware.Sender(middleware.getSenderID());
