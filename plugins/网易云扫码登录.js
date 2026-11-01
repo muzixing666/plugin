@@ -5,10 +5,13 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.4.0]
+// [version: 1.5.0]
 // [author: muzixing666]
 // [description: 私聊发送网易云登录，选择扫码、手机验证码或 Cookie 登录；支持 q 和超时退出。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
+// [param: {"required":false,"key":"netease_login.ncmm_url","bool":false,"name":"NCMM 地址","placeholder":"http://服务器:10239","desc":"羽化容器可访问的 NCMM Web 地址。"}]
+// [param: {"required":false,"key":"netease_login.ncmm_password","bool":false,"name":"NCMM 管理密码","placeholder":"NCMM 管理密码","desc":"仅保存在羽化面板配置中，不要填写在插件源代码里。"}]
+// [param: {"required":false,"key":"netease_login.ncmm_ql_path","bool":false,"name":"NCMM 青龙脚本目录","placeholder":"3899_ncmm_main/scripts","desc":"NCMM 的工作目录相对于青龙 scripts 的路径；青龙开放平台应用需要脚本及环境变量权限。"}]
 'use strict';
 const crypto = require('crypto');
 const https = require('https');
@@ -39,15 +42,6 @@ function request(url, options = {}) {
 async function music(path, data, musicU = "") {
   const body = new URLSearchParams(encrypted(data)).toString();
   return request('https://music.163.com/weapi/' + path, {method:'POST', body, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36','Referer':'https://music.163.com/','Origin':'https://music.163.com','Cookie':'os=pc; appver=2.10.6;' + (musicU ? ' MUSIC_U=' + musicU + ';' : '')}});
-}
-// EAPI request format reference: https://github.com/chaunsin/netease-cloud-music (MIT).
-async function musicPhoneLogin(data) {
-  const path = '/api/w/login/cellphone';
-  const text = JSON.stringify({...data, e_r:false, header:'{}'});
-  const digest = crypto.createHash('md5').update('nobody' + path + 'use' + text + 'md5forencrypt').digest('hex');
-  const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from('e82ckenh8dichen8'), null);
-  const params = Buffer.concat([cipher.update(path + '-36cd479b6b5-' + text + '-36cd479b6b5-' + digest, 'utf8'), cipher.final()]).toString('hex').toUpperCase();
-  return request('https://interface.music.163.com/eapi/w/login/cellphone', {method:'POST', body:new URLSearchParams({params}).toString(), headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'NeteaseMusic/9.2.85.250418145357(9002085);Dalvik/2.1.0 (Linux; U; Android 9; SM-S9180 Build/PQ3B.190801.10101846)','Referer':'https://music.163.com','x-aeapi':'false','Cookie':'channel=netease; os=android; osver=9; appver=9.2.85; buildver=250418145357; versioncode=9002085;'}});
 }
 function checkQL(r, action) { if (!r || r.code !== 200) throw new Error('青龙' + action + '失败，请检查开放平台权限'); return r.data; }
 function fields(env) { return String(env.remarks || '').split('丨'); }
@@ -97,7 +91,7 @@ async function accountMenu(sender, ql, owner, deleting) {
   const current = (await listQL(ql)).filter(e => String(e.id || e._id || '') === selectedId && owns(e, owner) && envUID(e) === uid);
   if (current.length !== 1) throw new Error('账号信息已变化，未执行删除，请重新查询');
   checkQL((await request(ql.base + '/open/envs', {method:'DELETE', headers:ql.headers, body:JSON.stringify([selected.id || selected._id])})).data, '删除变量');
-  await sender.reply('已删除网易云 UID：' + uid + ' 的青龙登录信息及绑定。');
+  await sender.reply('已删除网易云 UID：' + uid + ' 的青龙登录信息及绑定；如曾通过手机号登录，NCMM 中的账号和文件仍需由管理员处理。');
 }
 function extractMusicU(input) {
   const text = String(input || '').trim();
@@ -132,20 +126,45 @@ async function cookieLogin(sender, ql, owner) {
   if (!value) { await sender.reply('未找到有效的 MUSIC_U，请检查输入后重试。'); return; }
   await saveLogin(sender, ql, owner, value);
 }
+async function ncmmLogin() {
+  const base = String(await middleware.bucketGet('netease_login', 'ncmm_url') || '').trim().replace(/\/+$/, '');
+  const password = String(await middleware.bucketGet('netease_login', 'ncmm_password') || '');
+  const path = String(await middleware.bucketGet('netease_login', 'ncmm_ql_path') || '').trim().replace(/^\/+|\/+$/g, '');
+  if (!base || !password || !path || path.split('/').some(x => !x || x === '.' || x === '..') || path.includes('\\')) throw new Error('请联系管理员配置 NCMM 地址、密码和青龙脚本目录');
+  const u = new URL(base); if (!['http:', 'https:'].includes(u.protocol)) throw new Error('NCMM 地址不正确');
+  const login = await request(base + '/api/v1/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password})});
+  const cookie = login.cookies.map(x => x.split(';')[0]).join('; '); const csrf = login.data && login.data.csrfToken;
+  if (!cookie || !csrf) throw new Error('NCMM 登录失败，请管理员检查连接配置');
+  return {base, path, headers:{'Content-Type':'application/json','Cookie':cookie,'X-NCMM-CSRF':csrf}};
+}
+async function ncmmPost(ncmm, endpoint, data) {
+  return (await request(ncmm.base + endpoint, {method:'POST', headers:ncmm.headers, body:JSON.stringify(data)})).data;
+}
 async function phoneLogin(sender, ql, owner) {
+  const ncmm = await ncmmLogin();
+  const directory = ql.base + '/open/scripts?path=' + encodeURIComponent(ncmm.path);
+  checkQL((await request(directory, {headers:ql.headers})).data, '读取 NCMM 目录');
   const phone = await privateInput(sender, '请输入中国大陆手机号（2 分钟内有效）。');
   if (!phone) return;
   if (!/^1[0-9]{10}$/.test(phone)) { await sender.reply('手机号格式不正确，请重新发送“网易云手机登录”。'); return; }
-  const sent = await music('sms/captcha/sent', {ctcode:'86', secrete:'music_middleuser_pclogin', cellphone:phone});
-  if (sent.data.code !== 200) throw new Error('短信发送失败（网易云返回 ' + String(sent.data.code || '异常') + '），请稍后重试');
+  const identity = crypto.createHash('sha256').update(JSON.stringify([owner.platform,owner.user,phone])).digest('hex').slice(0,24);
+  const filename = 'yuhua_' + identity + '.json';
+  await ncmmPost(ncmm, '/api/v1/accounts/phone/send-sms', {phone, ctcode:86, countrycode:86});
   const captcha = await privateInput(sender, '验证码已发送，请输入短信验证码（2 分钟内有效）。');
   if (!captcha) return;
   if (!/^[0-9]{4,8}$/.test(captcha)) { await sender.reply('验证码格式不正确，请重新发送“网易云手机登录”。'); return; }
-  const result = await musicPhoneLogin({type:'1', https:'true', phone, countrycode:86, captcha, remember:'true'});
-  if (result.data.code === 10004) throw new Error('网易云拒绝本次手机登录（10004），可能触发安全限制；请稍后再试或选择扫码登录');
-  if (result.data.code === 503) throw new Error('网易云提示验证码错误或已失效，请重新发送验证码后重试');
-  if (result.data.code !== 200) throw new Error('手机登录失败（网易云返回 ' + String(result.data.code || '异常') + '），请稍后重试或选择扫码登录');
-  await saveLogin(sender, ql, owner, cookieFromResponse(result));
+  const result = await ncmmPost(ncmm, '/api/v1/accounts/phone/verify', {phone, captcha, ctcode:86, countrycode:86, nickname:'', filename, main:false});
+  if (result.needNickname) throw new Error('该号码需要先在 NCMM 完成注册或设置昵称，未同步青龙');
+  if (result.filename && result.filename !== filename) throw new Error('NCMM 返回的文件名不匹配，账号已保存但未同步青龙，请联系管理员');
+  try {
+    const url = ql.base + '/open/scripts/detail?file=' + encodeURIComponent(filename) + '&path=' + encodeURIComponent(ncmm.path);
+    const raw = checkQL((await request(url, {headers:ql.headers})).data, '读取 NCMM 账号');
+    const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const cookie = obj && obj['163.com'] && obj['163.com']['music.163.com;/;MUSIC_U'];
+    const value = cookie && typeof cookie === 'object' ? cookie.Value : '';
+    if (!value) throw new Error('账号文件中没有 MUSIC_U');
+    await saveLogin(sender, ql, owner, extractMusicU(value));
+  } catch (_) { throw new Error('NCMM 已保存账号，但未能同步青龙，请联系管理员检查脚本读取权限和目录'); }
 }
 async function main() {
   const sender = new middleware.Sender(middleware.getSenderID());
