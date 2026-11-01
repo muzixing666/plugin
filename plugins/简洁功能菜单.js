@@ -5,7 +5,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.2.0]
+// [version: 2.3.0]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
@@ -152,6 +152,7 @@ function schemaFor(items,legacy={},customCount=3) {
     prop[key+'_title']={type:'string',title:'名称',default:base.title};
     prop[key+'_intro']={type:'string',title:'简介',default:base.description};
     prop[key+'_commands']={type:'string',title:'指令',default:base.commands.join('，'),description:'用逗号分隔；仅修改显示，不会修改插件的实际指令。'};
+    prop[key+'_admin_commands']={type:'string',title:'管理员专用指令',default:'',description:'填写需隐藏的完整指令，用逗号分隔；只影响菜单显示，权限由插件本身控制。'};
     prop[key+'_order']={type:'string',title:'排序',default:String((old ? Array.from(oldItems.keys()).indexOf(item.originalTitle) : i)+1),description:'数字越小越靠前。'};
   });
   for(let i=1;i<=customCount;i++) {
@@ -161,6 +162,7 @@ function schemaFor(items,legacy={},customCount=3) {
     prop[key+'_title']={type:'string',title:'名称',default:''};
     prop[key+'_intro']={type:'string',title:'简介',default:''};
     prop[key+'_commands']={type:'string',title:'指令',default:'',description:'用逗号分隔；需要已存在的插件响应相应指令。'};
+    prop[key+'_admin_commands']={type:'string',title:'管理员专用指令',default:'',description:'填写需隐藏的完整指令，用逗号分隔；只影响菜单显示，权限由插件本身控制。'};
     prop[key+'_order']={type:'string',title:'排序',default:String(1000+i)};
   }
   return {type:'object',properties:prop};
@@ -171,14 +173,18 @@ function renderedItems(rows,meta,platform,admin,values,schema,customCount) {
   for(const item of all) {
     const key=fieldKey(item), get=suffix=>valueOr(values,key+'_'+suffix,defaults[key+'_'+suffix]);
     if(!get('enabled')) continue;
-    const title=String(get('title') || '').trim(), list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean);
+    const title=String(get('title') || '').trim();
+    const restricted=new Set(String(get('admin_commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean));
+    const list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(x=>x && (admin || !restricted.has(x)));
     if(!title || !list.length) continue;
     out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
   }
   for(let i=1;i<=customCount;i++) {
     const key='custom_'+i,get=suffix=>valueOr(values,key+'_'+suffix,defaults[key+'_'+suffix]);
     if(!get('enabled')) continue;
-    const title=String(get('title') || '').trim(),list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean);
+    const title=String(get('title') || '').trim();
+    const restricted=new Set(String(get('admin_commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean));
+    const list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(x=>x && (admin || !restricted.has(x)));
     if(title && list.length) out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
   }
   return out.sort((a,b)=>a.order-b.order || a.title.localeCompare(b.title,'zh-CN'));
