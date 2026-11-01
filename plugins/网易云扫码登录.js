@@ -5,9 +5,9 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.2.0]
+// [version: 1.3.0]
 // [author: muzixing666]
-// [description: 私聊支持网易云扫码、手机验证码、Cookie 登录，以及查询和删除自己的账号。依赖 Node.js qrcode。]
+// [description: 私聊发送网易云登录，选择扫码、手机验证码或 Cookie 登录；支持 q 和超时退出。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
 'use strict';
 const crypto = require('crypto');
@@ -112,24 +112,25 @@ async function saveLogin(sender, ql, owner, value) {
 async function privateInput(sender, prompt, timeout = 120000) {
   await sender.reply(prompt + '\n请在私聊中发送，回复 q 取消；机器人会尝试撤回你的消息。');
   const text = String(await sender.input(timeout, 1000, false) || '').trim();
-  if (!text || /^(q|取消)$/i.test(text)) return '';
+  if (!text) { await sender.reply('等待输入超时，已退出。'); return ''; }
+  if (/^(q|取消)$/i.test(text)) { await sender.reply('已退出登录。'); return ''; }
   return text;
 }
 async function cookieLogin(sender, ql, owner) {
   const input = await privateInput(sender, '请发送完整 Cookie 或 MUSIC_U 的值（2 分钟内有效）。');
-  if (!input) { await sender.reply('已取消登录。'); return; }
+  if (!input) return;
   const value = extractMusicU(input);
   if (!value) { await sender.reply('未找到有效的 MUSIC_U，请检查输入后重试。'); return; }
   await saveLogin(sender, ql, owner, value);
 }
 async function phoneLogin(sender, ql, owner) {
   const phone = await privateInput(sender, '请输入中国大陆手机号（2 分钟内有效）。');
-  if (!phone) { await sender.reply('已取消登录。'); return; }
+  if (!phone) return;
   if (!/^1[0-9]{10}$/.test(phone)) { await sender.reply('手机号格式不正确，请重新发送“网易云手机登录”。'); return; }
   const sent = await music('sms/captcha/sent', {ctcode:'86', secrete:'music_middleuser_pclogin', cellphone:phone});
   if (sent.data.code !== 200) throw new Error('短信发送失败（网易云返回 ' + String(sent.data.code || '异常') + '），请稍后重试');
   const captcha = await privateInput(sender, '验证码已发送，请输入短信验证码（2 分钟内有效）。');
-  if (!captcha) { await sender.reply('已取消登录。'); return; }
+  if (!captcha) return;
   if (!/^[0-9]{4,8}$/.test(captcha)) { await sender.reply('验证码格式不正确，请重新发送“网易云手机登录”。'); return; }
   const result = await music('w/login/cellphone', {type:'1', https:'true', phone, countrycode:'86', captcha, remember:'true', secureCaptcha:''});
   if (result.data.code !== 200) throw new Error('手机登录失败（网易云返回 ' + String(result.data.code || '异常') + '），验证码可能错误、过期或需要额外验证');
@@ -141,7 +142,16 @@ async function main() {
   if (chat && chat !== '0') { await sender.reply('请私聊机器人使用网易云账号管理功能。'); return; }
   const owner = {platform:String(await sender.getImtype() || '').trim(), user:String(await sender.getUserID() || '').trim()};
   if (!owner.platform || !owner.user) { await sender.reply('无法识别当前用户，请换用支持私聊的平台。'); return; }
-  const command = String(await sender.getMessage() || '').trim();
+  let command = String(await sender.getMessage() || '').trim();
+  if (command === '网易云登录') {
+    await sender.reply('请选择网易云登录方式：\n1. 扫码登录\n2. 手机号验证码登录\n3. Cookie 登录\n回复数字选择，发送 q 退出（60 秒内有效）。');
+    const choice = String(await sender.listen(60000) || '').trim();
+    if (!choice) { await sender.reply('选择超时，已退出。'); return; }
+    if (/^(q|取消)$/i.test(choice)) { await sender.reply('已退出登录。'); return; }
+    const commands = {'1':'网易云扫码登录', '2':'网易云手机登录', '3':'网易云Cookie登录'};
+    if (!commands[choice]) { await sender.reply('选择无效，已退出。请重新发送“网易云登录”。'); return; }
+    command = commands[choice];
+  }
   const config = String((await middleware.bucketGet('netease_login', 'ql_config')) || '').trim();
   if (config.split('丨').length !== 3 || config.split('丨').some(x => !x.trim())) { await sender.reply('插件尚未配置青龙连接，请联系管理员。'); return; }
   try {
@@ -149,16 +159,20 @@ async function main() {
     if (command === '网易云查询' || command === '网易云删除') { await accountMenu(sender, ql, owner, command === '网易云删除'); return; }
     if (command === '网易云Cookie登录') { await cookieLogin(sender, ql, owner); return; }
     if (command === '网易云手机登录') { await phoneLogin(sender, ql, owner); return; }
-    if (command !== '网易云登录') return;
+    if (command !== '网易云扫码登录') return;
     let QRCode; try { QRCode = require('qrcode'); } catch (_) { await sender.reply('缺少 Node.js 依赖 qrcode，请在羽化面板依赖管理中安装后重试。'); return; }
     const created = await music('login/qrcode/unikey', {type:3}); const key = created.data && created.data.unikey;
     if (created.data.code !== 200 || !key) throw new Error('获取网易云登录二维码失败');
     const qr = await QRCode.toDataURL('https://music.163.com/login?codekey=' + encodeURIComponent(key));
-    await sender.reply('请用网易云音乐 App 扫码并确认登录，二维码有效期约 3 分钟。');
+    await sender.reply('请用网易云音乐 App 扫码并确认登录，等待时间最多 3 分钟；发送 q 退出。');
     await sender.replyImage('base64://' + qr.split(',')[1]);
     let scanned = false; const end = Date.now() + 180000;
     while (Date.now() < end) {
-      await new Promise(r => setTimeout(r, 3000));
+      const remaining = end - Date.now();
+      if (remaining <= 0) break;
+      const input = String(await sender.listen(Math.min(3000, remaining)) || '').trim();
+      if (/^(q|取消)$/i.test(input)) { await sender.reply('已退出登录。'); return; }
+      if (Date.now() >= end) break;
       const result = await music('login/qrcode/client/login', {key, type:3}); const code = result.data.code;
       if (code === 800) { await sender.reply('二维码已过期，请重新发送“网易云登录”。'); return; }
       if (code === 802 && !scanned) { scanned = true; await sender.reply('已扫码，请在网易云音乐 App 中确认。'); }
