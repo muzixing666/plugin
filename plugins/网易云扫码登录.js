@@ -5,7 +5,7 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.7.0]
+// [version: 1.8.0]
 // [author: muzixing666]
 // [description: 支持网易云登录、官方账号资产及任务状态查询、删除青龙绑定。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
@@ -93,37 +93,69 @@ async function accountMenu(sender, ql, owner, deleting) {
   checkQL((await request(ql.base + '/open/envs', {method:'DELETE', headers:ql.headers, body:JSON.stringify([selected.id || selected._id])})).data, '删除变量');
   await sender.reply('已删除网易云 UID：' + uid + ' 的青龙登录信息及绑定；如曾通过手机号登录，NCMM 中的账号和文件仍需由管理员处理。');
 }
+function todayCN() { return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()); }
+function dayOfTimestamp(value) {
+  const d=new Date(value); if(!Number.isFinite(d.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(d);
+}
+function summarizeToday(records, hasMore, dateOf, amountOf) {
+  if(!Array.isArray(records) || typeof hasMore!=='boolean') return null;
+  const today=todayCN(); let sum=0, previous='', ordered=true, older=false, valid=true;
+  for(const item of records) {
+    const day=dateOf(item); if(!/^\d{4}-\d{2}-\d{2}$/.test(day)) {valid=false;continue;}
+    if(previous && day>previous) ordered=false; previous=day;
+    if(day<today) older=true;
+    if(day===today) {const n=amountOf(item); if(typeof n==='number' && Number.isFinite(n)) sum+=n; else valid=false;}
+  }
+  return {sum,complete:valid && (!hasMore || (older && ordered))};
+}
+async function yunbeiReceipts(token) {
+  const body=new URLSearchParams(encrypted({limit:100,offset:0})).toString();
+  return (await request('https://music.163.com/store/api/point/receipt',{method:'POST',body,headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36','Referer':'https://music.163.com/','Cookie':'os=pc; appver=2.10.6; MUSIC_U='+token+';'}})).data;
+}
 async function queryAccounts(sender, ql, owner) {
-  const accounts = (await listQL(ql)).filter(e => owns(e, owner) && envUID(e));
-  if (!accounts.length) { await sender.reply('你还没有绑定网易云账号。请私聊发送“网易云登录”。'); return; }
-  for (const e of accounts) {
+  const accounts=(await listQL(ql)).filter(e=>owns(e,owner) && envUID(e));
+  if(!accounts.length) {await sender.reply('你还没有绑定网易云账号。请私聊发送“网易云登录”。');return;}
+  for(const e of accounts) {
     const uid=envUID(e), lines=['===== 网易云账号 =====','UID：'+uid];
-    if (Number(e.status) === 1) lines.push('青龙变量：已禁用');
+    if(Number(e.status)===1) lines.push('青龙变量：已禁用');
     const token=extractMusicU(e.value);
-    if (!token) { await sender.reply(lines.concat('登录信息缺失，请重新登录。').join('\n')); continue; }
-    let account;
-    try { account=(await music('nuser/account/get',{},token)).data; } catch (_) {}
+    if(!token) {await sender.reply(lines.concat('登录信息缺失，请重新登录。').join('\n'));continue;}
+    let account;try{account=(await music('nuser/account/get',{},token)).data;}catch(_){}
     const actual=account && (account.account?.id || account.profile?.userId);
-    if (!actual || String(actual)!==uid || account.code!==200) { await sender.reply(lines.concat('账号验证失败或账号不匹配，请重新登录。').join('\n')); continue; }
-    if (account.profile?.nickname) lines.push('昵称：'+String(account.profile.nickname).replace(/[\r\n]/g,' ').slice(0,60));
-    const paths=['v1/user/info','user/level','point/today/get','usertool/task/todo/query','vipnewcenter/app/level/task/newlist'];
-    const result=await Promise.allSettled(paths.map(p=>music(p,{},token)));
-    const data=result.map(r=>r.status==='fulfilled' && r.value?.data?.code===200 ? r.value.data : null);
-    const [info,level,today,tasks,vip]=data;
-    if(level?.data?.level != null) lines.push('账号等级：Lv.'+level.data.level);
-    if(info?.userPoint?.balance != null) lines.push('云贝余额：'+info.userPoint.balance);
+    if(!actual || String(actual)!==uid || account.code!==200) {await sender.reply(lines.concat('账号验证失败或账号不匹配，请重新登录。').join('\n'));continue;}
+    if(account.profile?.nickname) lines.push('昵称：'+String(account.profile.nickname).replace(/[\r\n]/g,' ').slice(0,60));
+    const requests=[()=>music('v1/user/info',{},token).then(r=>r.data),()=>music('user/level',{},token).then(r=>r.data),()=>music('point/today/get',{},token).then(r=>r.data),()=>music('usertool/task/todo/query',{},token).then(r=>r.data),()=>music('vipnewcenter/app/level/task/newlist',{},token).then(r=>r.data),()=>music('vipnewcenter/app/level/growth/details',{limit:100,offset:0},token).then(r=>r.data),()=>music('nmusician/workbench/musician/role/get',{},token).then(r=>r.data),()=>yunbeiReceipts(token)];
+    const settled=await Promise.allSettled(requests.map(f=>f()));
+    const data=settled.map(r=>r.status==='fulfilled' && r.value?.code===200?r.value:null);
+    const [info,level,today,tasks,vip,growth,role,receipt]=data;
+    if(level?.data?.level!=null) lines.push('账号等级：Lv.'+level.data.level);
+    if(info?.userPoint?.balance!=null) lines.push('云贝余额：'+info.userPoint.balance);
     if(typeof info?.viptype==='number') lines.push('会员状态：'+(info.viptype>0?'会员':'非会员'));
-    lines.push('----- 今日状态 -----');
-    let shown=0;
-    if(typeof info?.pcSign==='boolean' && typeof info?.mobileSign==='boolean') {lines.push('签到：电脑端'+(info.pcSign?'已签到':'未签到')+'，手机端'+(info.mobileSign?'已签到':'未签到'));shown++;}
-    if(typeof today?.data?.shells==='number') {lines.push('今日签到所得云贝：'+today.data.shells);shown++;}
-    if(Array.isArray(tasks?.data)) {
-      const known=tasks.data.filter(t=>typeof t.completed==='boolean');
-      if(known.length) { lines.push('云贝待办任务：'+known.filter(t=>t.completed).length+'/'+known.length+' 已完成（接口返回的任务）'); shown++; }
+    lines.push('----- 今日数据 -----');
+    if(typeof info?.pcSign==='boolean' && typeof info?.mobileSign==='boolean') lines.push('签到：电脑端'+(info.pcSign?'已签到':'未签到')+'，手机端'+(info.mobileSign?'已签到':'未签到'));
+    if(typeof today?.data?.shells==='number') lines.push('今日签到所得云贝：'+today.data.shells);
+    const income=receipt?summarizeToday(receipt.data,receipt.hasmore,x=>String(x.date || '').slice(0,10),x=>x.pointCost):null;
+    if(income) lines.push('今日增加云贝：'+(income.complete?'':'至少 ')+income.sum+(income.complete?'':'（记录未完整）')); else lines.push('今日增加云贝：暂未获取');
+    const gained=growth?.data?summarizeToday(growth.data.details,growth.data.hasMore,x=>dayOfTimestamp(x.time),x=>x.growthPoint):null;
+    if(gained) lines.push('今日增加会员成长值：'+(gained.complete?'':'至少 ')+gained.sum+(gained.complete?'':'（记录未完整）')); else lines.push('今日增加会员成长值：暂未获取');
+    if(Array.isArray(tasks?.data)) {const known=tasks.data.filter(t=>typeof t.completed==='boolean');if(known.length) lines.push('云贝待办任务：'+known.filter(t=>t.completed).length+'/'+known.length+' 已完成（接口返回的任务）');}
+    if(typeof vip?.data?.unGetAllScore==='number') lines.push('会员成长值待领取：'+vip.data.unGetAllScore);
+    lines.push('----- 音乐人状态 -----');
+    if(typeof role?.data?.isMusician!=='boolean') lines.push('音乐人身份：暂未获取');
+    else if(!role.data.isMusician) lines.push('当前账号不是音乐人');
+    else {
+      const extra=await Promise.allSettled([music('nmusician/workbench/mission/cycle/list',{platform:1},token),music('cloudbean/get',{},token)]);
+      const missions=extra[0].status==='fulfilled' && extra[0].value?.data?.code===200?extra[0].value.data.data?.list:null;
+      const bean=extra[1].status==='fulfilled' && extra[1].value?.data?.code===200?extra[1].value.data.data:null;
+      if(typeof bean?.cloudBean==='number') lines.push('云豆余额：'+bean.cloudBean);
+      if(typeof bean?.signed==='boolean') lines.push('音乐人签到：'+(bean.signed?'已签到':'未签到'));
+      if(Array.isArray(missions) && missions.length) {
+        for(const task of missions.slice(0,12)) {const name=String(task.name || task.description || '任务').replace(/[\r\n]/g,' ').slice(0,45);const state=Number(task.status)===100?'已完成':Number(task.status)===0?'未完成':'状态 '+String(task.status ?? '未知');lines.push(name+'：'+state);}
+        if(missions.length>12) lines.push('其余任务请在网易云音乐人中心查看');
+      } else lines.push('音乐人任务：暂未获取');
     }
-    if(typeof vip?.data?.unGetAllScore==='number') {lines.push('会员成长值待领取：'+vip.data.unGetAllScore);shown++;}
-    if(!shown) lines.push('暂时无法获取今日状态。');
-    lines.push('以上为网易云当前返回的状态，不代表自动任务的执行日志。');
+    lines.push('数据以网易云接口返回为准。');
     await sender.reply(lines.join('\n'));
   }
 }

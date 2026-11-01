@@ -5,7 +5,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 1.3.0]
+// [version: 1.4.0]
 // [author: muzixing666]
 // [description: 发送菜单查看插件列表；标题、页脚、隐藏项目和项目简介可在设置中修改。]
 // [param: {"required":false,"key":"simple_menu.panel_url","bool":false,"name":"面板内部地址","placeholder":"http://127.0.0.1:6060","desc":"默认使用羽化面板容器内部地址，无需填写。"}]
@@ -13,6 +13,9 @@
 // [param: {"required":false,"key":"simple_menu.footer","bool":false,"name":"菜单提示","placeholder":"回复编号查看介绍和指令；q 退出。","desc":"一级菜单底部显示的文字。"}]
 // [param: {"required":false,"key":"simple_menu.hidden","bool":false,"name":"隐藏项目","placeholder":"项目一,项目二","desc":"按插件标题填写，多个标题用逗号或中文逗号分隔。"}]
 // [param: {"required":false,"key":"simple_menu.intros","bool":false,"name":"自定义项目简介","placeholder":"网易云扫码登录=登录网易云并查询账号；京东登录=京东账号登录","desc":"格式：插件标题=简介；多个用中文分号分隔。未填写的项目使用插件原有介绍。"}]
+// [param: {"required":false,"key":"simple_menu.names","bool":false,"name":"自定义项目名称","placeholder":"原插件标题=显示名称；另一标题=新名称","desc":"多个项目用中文分号分隔；左边填写插件原始标题。"}]
+// [param: {"required":false,"key":"simple_menu.commands","bool":false,"name":"自定义项目指令","placeholder":"原插件标题=指令一,指令二；另一标题=指令三","desc":"多个指令用逗号分隔，不同项目用中文分号分隔；仅修改菜单展示，不会修改实际触发规则。"}]
+// [param: {"required":false,"key":"simple_menu.order","bool":false,"name":"项目显示顺序","placeholder":"项目一,项目二,项目三","desc":"按插件原始标题填写，多个用逗号分隔；未列出项目排在后面。"}]
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -82,18 +85,21 @@ function briefDescription(value) {
 }
 function visibleRows(rows, meta, platform, admin, settings={}) {
   const hidden = new Set(String(settings.hidden || "").split(/[,，;；\n]/).map(x=>x.trim()).filter(Boolean));
-  const intros = {};
-  for(const item of String(settings.intros || "").split(/[；\n]/)) { const i=item.indexOf("="); if(i>0) intros[item.slice(0,i).trim()]=item.slice(i+1).trim(); }
+  function mapping(value) { const out={}; for(const item of String(value || '').split(/[；\n]/)) { const i=item.indexOf('='); if(i>0) out[item.slice(0,i).trim()]=item.slice(i+1).trim(); } return out; }
+  const intros=mapping(settings.intros), names=mapping(settings.names), customCommands=mapping(settings.commands);
+  const order=String(settings.order || '').split(/[,，;；\n]/).map(x=>x.trim()).filter(Boolean);
   const output=[];
   for(const p of rows) {
     if(![2,6].includes(Number(p.status)) || p.disable || (!admin && (p.admin_only || p.public === false))) continue;
     const title=String(p.title||'').trim(); if(!title || title==='简洁功能菜单' || hidden.has(title)) continue;
     const sources=meta.get(title)||[];
     if(sources.length && !sources.some(x=>!x.hidden && (!x.platforms || x.platforms.includes(platform)))) continue;
-    const list=commands(p.rule); if(!list.length) continue;
-    output.push({title,commands:list,description:briefDescription(intros[title] || p.desc)});
+    const list=Object.prototype.hasOwnProperty.call(customCommands,title) ? customCommands[title].split(/[,，、]/).map(x=>x.trim()).filter(Boolean) : commands(p.rule);
+    if(!list.length) continue;
+    const displayName=String(names[title] || title).replace(/[\r\n]/g,' ').slice(0,80);
+    output.push({title:displayName,originalTitle:title,commands:list,description:briefDescription(intros[title] || p.desc)});
   }
-  return output.sort((a,b)=>a.title.localeCompare(b.title,'zh-CN'));
+  return output.sort((a,b)=>{const ai=order.indexOf(a.originalTitle),bi=order.indexOf(b.originalTitle); if(ai!==bi) return (ai<0?Infinity:ai)-(bi<0?Infinity:bi); return a.title.localeCompare(b.title,'zh-CN');});
 }
 async function showMenu(sender, plugins, settings={}) {
   const chat=String(await sender.getChatID() || '').trim();
@@ -122,8 +128,8 @@ async function showMenu(sender, plugins, settings={}) {
 async function main() {
   const sender=new middleware.Sender(middleware.getSenderID());
   const platform=String(await sender.getImtype() || '').toLowerCase(); const admin=!!(await sender.isAdmin());
-  const values=await Promise.all(['panel_url','title','footer','hidden','intros'].map(k=>middleware.bucketGet('simple_menu',k)));
-  const [panel_url,title,footer,hidden,intros]=values; const settings={title,footer,hidden,intros};
+  const values=await Promise.all(['panel_url','title','footer','hidden','intros','names','commands','order'].map(k=>middleware.bucketGet('simple_menu',k)));
+  const [panel_url,title,footer,hidden,intros,names,commands,order]=values; const settings={title,footer,hidden,intros,names,commands,order};
   const base=String(panel_url || 'http://127.0.0.1:6060').trim().replace(/\/+$/,'');
   try {
     const u=new URL(base); if(!['http:','https:'].includes(u.protocol)) throw new Error('地址无效');
