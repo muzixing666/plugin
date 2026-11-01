@@ -5,9 +5,9 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.6.0]
+// [version: 1.7.0]
 // [author: muzixing666]
-// [description: 支持网易云登录、账号资产与今日运行查询、删除青龙绑定。依赖 Node.js qrcode。]
+// [description: 支持网易云登录、官方账号资产及任务状态查询、删除青龙绑定。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
 // [param: {"required":false,"key":"netease_login.ncmm_url","bool":false,"name":"NCMM 地址","placeholder":"http://服务器:10239","desc":"羽化容器可访问的 NCMM Web 地址。"}]
 // [param: {"required":false,"key":"netease_login.ncmm_password","bool":false,"name":"NCMM 管理密码","placeholder":"NCMM 管理密码","desc":"仅保存在羽化面板配置中，不要填写在插件源代码里。"}]
@@ -93,67 +93,37 @@ async function accountMenu(sender, ql, owner, deleting) {
   checkQL((await request(ql.base + '/open/envs', {method:'DELETE', headers:ql.headers, body:JSON.stringify([selected.id || selected._id])})).data, '删除变量');
   await sender.reply('已删除网易云 UID：' + uid + ' 的青龙登录信息及绑定；如曾通过手机号登录，NCMM 中的账号和文件仍需由管理员处理。');
 }
-function dateCN(value) {
-  const d = new Date(value); if (!Number.isFinite(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Shanghai', year:'numeric', month:'2-digit', day:'2-digit'}).format(d);
-}
-function dailyNCMM(runs, uid, now = Date.now()) {
-  const today = dateCN(now), matched = [];
-  for (const run of Array.isArray(runs) ? runs : []) {
-    if (dateCN(run.triggeredAt || run.startedAt) !== today) continue;
-    for (const item of Array.isArray(run.rewards) ? run.rewards : []) {
-      if (item.uid != null && String(item.uid) === uid) matched.push({run, item});
-    }
-  }
-  matched.sort((a,b) => new Date(a.run.triggeredAt || a.run.startedAt) - new Date(b.run.triggeredAt || b.run.startedAt));
-  const out = {count:matched.length, statuses:[], yunbeiKnown:false, yunbei:0};
-  for (const {run,item} of matched) {
-    if (item.yunbeiKnown) { const n=Number(item.yunbei); if (Number.isFinite(n)) { out.yunbei = item.yunbeiCumulative ? n : out.yunbei+n; out.yunbeiKnown=true; } }
-    for (const [known,fields] of [['growthKnown',['growthToday','growthTotal']],['effectiveKnown',['effectivePlays','effectiveTarget']],['signKnown',['signed']]]) {
-      if (item[known]) { out[known]=true; for (const f of fields) out[f]=item[f]; }
-    }
-    if (run.jobName && run.status) out.statuses.push(String(run.jobName).replace(/[\r\n]/g,' ').slice(0,50) + '：' + ({success:'成功',failed:'失败',running:'运行中',queued:'排队中',stopped:'已停止'}[run.status] || String(run.status).replace(/[\r\n]/g,' ').slice(0,20)));
-  }
-  return out;
-}
 async function queryAccounts(sender, ql, owner) {
   const accounts = (await listQL(ql)).filter(e => owns(e, owner) && envUID(e));
   if (!accounts.length) { await sender.reply('你还没有绑定网易云账号。请私聊发送“网易云登录”。'); return; }
-  let runs = null;
-  try { const ncmm = await ncmmLogin(); const result = await request(ncmm.base + '/api/v1/runs', {headers:ncmm.headers}); if (Array.isArray(result.data)) runs = result.data; } catch (_) {}
   for (const e of accounts) {
-    const uid=envUID(e), lines=['===== 网易云账号 =====', 'UID：' + uid];
+    const uid=envUID(e), lines=['===== 网易云账号 =====','UID：'+uid];
     if (Number(e.status) === 1) lines.push('青龙变量：已禁用');
     const token=extractMusicU(e.value);
     if (!token) { await sender.reply(lines.concat('登录信息缺失，请重新登录。').join('\n')); continue; }
     let account;
-    try { account = (await music('nuser/account/get', {}, token)).data; } catch (_) {}
+    try { account=(await music('nuser/account/get',{},token)).data; } catch (_) {}
     const actual=account && (account.account?.id || account.profile?.userId);
     if (!actual || String(actual)!==uid || account.code!==200) { await sender.reply(lines.concat('账号验证失败或账号不匹配，请重新登录。').join('\n')); continue; }
-    if (account.profile?.nickname) lines.push('昵称：' + String(account.profile.nickname).replace(/[\r\n]/g,' ').slice(0,60));
-    let info, level;
-    try { info=(await music('v1/user/info',{},token)).data; } catch (_) {}
-    try { level=(await music('user/level',{},token)).data; } catch (_) {}
-    if (level?.code===200 && level.data?.level != null) lines.push('账号等级：Lv.' + level.data.level);
-    if (info?.code===200) {
-      if (info.userPoint?.balance != null) lines.push('云贝余额：' + info.userPoint.balance);
-      if (typeof info.viptype==='number') lines.push('会员状态：' + (info.viptype>0 ? '会员' : '非会员'));
-      if (typeof info.pcSign==='boolean' && typeof info.mobileSign==='boolean') lines.push('今日签到：电脑端' + (info.pcSign?'已签到':'未签到') + '，手机端' + (info.mobileSign?'已签到':'未签到'));
-    } else lines.push('实时资产：暂时无法获取');
-    lines.push('----- 今日 NCMM 运行记录 -----');
-    if (!runs) lines.push('无法读取 NCMM 运行记录，请检查插件中的 NCMM 配置。');
-    else {
-      const daily=dailyNCMM(runs,uid);
-      if (!daily.count) lines.push('暂无可按 UID 确认属于此账号的记录。');
-      else {
-        if (daily.yunbeiKnown) lines.push('今日获得云贝：' + daily.yunbei);
-        if (daily.growthKnown) lines.push('成长值：今日 ' + (daily.growthToday ?? '未知') + '，累计 ' + (daily.growthTotal ?? '未知'));
-        if (daily.effectiveKnown) lines.push('有效播放：' + (daily.effectivePlays ?? '未知') + ' / ' + (daily.effectiveTarget ?? '未知'));
-        if (daily.signKnown) lines.push('任务记录签到：' + (daily.signed ? '已签到' : '未签到'));
-        if (daily.statuses.length) lines.push('任务整体状态：' + daily.statuses.slice(-5).join('；'));
-        lines.push('仅统计带本账号 UID 的记录；任务状态为整次运行状态。');
-      }
+    if (account.profile?.nickname) lines.push('昵称：'+String(account.profile.nickname).replace(/[\r\n]/g,' ').slice(0,60));
+    const paths=['v1/user/info','user/level','point/today/get','usertool/task/todo/query','vipnewcenter/app/level/task/newlist'];
+    const result=await Promise.allSettled(paths.map(p=>music(p,{},token)));
+    const data=result.map(r=>r.status==='fulfilled' && r.value?.data?.code===200 ? r.value.data : null);
+    const [info,level,today,tasks,vip]=data;
+    if(level?.data?.level != null) lines.push('账号等级：Lv.'+level.data.level);
+    if(info?.userPoint?.balance != null) lines.push('云贝余额：'+info.userPoint.balance);
+    if(typeof info?.viptype==='number') lines.push('会员状态：'+(info.viptype>0?'会员':'非会员'));
+    lines.push('----- 今日状态 -----');
+    let shown=0;
+    if(typeof info?.pcSign==='boolean' && typeof info?.mobileSign==='boolean') {lines.push('签到：电脑端'+(info.pcSign?'已签到':'未签到')+'，手机端'+(info.mobileSign?'已签到':'未签到'));shown++;}
+    if(typeof today?.data?.shells==='number') {lines.push('今日签到所得云贝：'+today.data.shells);shown++;}
+    if(Array.isArray(tasks?.data)) {
+      const known=tasks.data.filter(t=>typeof t.completed==='boolean');
+      if(known.length) { lines.push('云贝待办任务：'+known.filter(t=>t.completed).length+'/'+known.length+' 已完成（接口返回的任务）'); shown++; }
     }
+    if(typeof vip?.data?.unGetAllScore==='number') {lines.push('会员成长值待领取：'+vip.data.unGetAllScore);shown++;}
+    if(!shown) lines.push('暂时无法获取今日状态。');
+    lines.push('以上为网易云当前返回的状态，不代表自动任务的执行日志。');
     await sender.reply(lines.join('\n'));
   }
 }
