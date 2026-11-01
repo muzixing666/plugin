@@ -21,7 +21,7 @@
     "title": "简洁功能菜单",
     "type": "javascript",
     "path": "plugins/简洁功能菜单.js",
-    "version": "v2.3.0",
+    "version": "v2.4.0",
     "desc": "支持配置每个项目的管理员专用指令，按用户权限显示菜单。",
     "rule": "^菜单$",
     "icon": "",

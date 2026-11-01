@@ -5,7 +5,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.3.0]
+// [version: 2.4.0]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
@@ -147,7 +147,7 @@ function schemaFor(items,legacy={},customCount=3) {
   const all=visibleRows(items.rows,items.meta,'',true,{});
   all.forEach((item,i)=>{
     const key=fieldKey(item),old=oldItems.get(item.originalTitle),base=old || item;
-    prop['group_'+key]={type:'null',title:'📌 '+item.originalTitle,'x-autman-spliter':true};
+    prop['group_'+key]={type:'null',title:'【'+item.originalTitle+'】',description:'插件项目 · 在下方修改显示内容','x-autman-spliter':true};
     prop[key+'_enabled']={type:'boolean',title:'显示此项目',default:!!old || !String(legacy.hidden||'').split(/[,，;；\n]/).map(x=>x.trim()).includes(item.originalTitle)};
     prop[key+'_title']={type:'string',title:'名称',default:base.title};
     prop[key+'_intro']={type:'string',title:'简介',default:base.description};
@@ -157,7 +157,7 @@ function schemaFor(items,legacy={},customCount=3) {
   });
   for(let i=1;i<=customCount;i++) {
     const key='custom_'+i;
-    prop['group_'+key]={type:'null',title:'✏️ 自定义项目 '+i,'x-autman-spliter':true};
+    prop['group_'+key]={type:'null',title:'【自定义项目 '+i+'】',description:'自定义项目 · 在下方填写内容','x-autman-spliter':true};
     prop[key+'_enabled']={type:'boolean',title:'启用此项目',default:false};
     prop[key+'_title']={type:'string',title:'名称',default:''};
     prop[key+'_intro']={type:'string',title:'简介',default:''};
