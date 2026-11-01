@@ -1,0 +1,18 @@
+{
+  "plugins/网易云扫码登录.js": {
+    "id": "网易云扫码登录",
+    "name": "网易云扫码登录",
+    "title": "网易云扫码登录",
+    "type": "javascript",
+    "path": "plugins/网易云扫码登录.js",
+    "version": "v1.0.0",
+    "desc": "私聊发送网易云登录，使用网易云音乐 App 扫码并确认，将账号凭证写入青龙。需安装 Node.js qrcode 依赖并配置青龙开放平台。",
+    "rule": "^网易云登录$",
+    "icon": "",
+    "author": "muzixing666",
+    "class": "工具类",
+    "public": true,
+    "admin": false,
+    "disable": false
+  }
+}
