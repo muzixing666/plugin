@@ -5,7 +5,7 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.3.1]
+// [version: 1.4.0]
 // [author: muzixing666]
 // [description: 私聊发送网易云登录，选择扫码、手机验证码或 Cookie 登录；支持 q 和超时退出。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
@@ -39,6 +39,15 @@ function request(url, options = {}) {
 async function music(path, data, musicU = "") {
   const body = new URLSearchParams(encrypted(data)).toString();
   return request('https://music.163.com/weapi/' + path, {method:'POST', body, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36','Referer':'https://music.163.com/','Origin':'https://music.163.com','Cookie':'os=pc; appver=2.10.6;' + (musicU ? ' MUSIC_U=' + musicU + ';' : '')}});
+}
+// EAPI request format reference: https://github.com/chaunsin/netease-cloud-music (MIT).
+async function musicPhoneLogin(data) {
+  const path = '/api/w/login/cellphone';
+  const text = JSON.stringify({...data, e_r:false, header:'{}'});
+  const digest = crypto.createHash('md5').update('nobody' + path + 'use' + text + 'md5forencrypt').digest('hex');
+  const cipher = crypto.createCipheriv('aes-128-ecb', Buffer.from('e82ckenh8dichen8'), null);
+  const params = Buffer.concat([cipher.update(path + '-36cd479b6b5-' + text + '-36cd479b6b5-' + digest, 'utf8'), cipher.final()]).toString('hex').toUpperCase();
+  return request('https://interface.music.163.com/eapi/w/login/cellphone', {method:'POST', body:new URLSearchParams({params}).toString(), headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'NeteaseMusic/9.2.85.250418145357(9002085);Dalvik/2.1.0 (Linux; U; Android 9; SM-S9180 Build/PQ3B.190801.10101846)','Referer':'https://music.163.com','x-aeapi':'false','Cookie':'channel=netease; os=android; osver=9; appver=9.2.85; buildver=250418145357; versioncode=9002085;'}});
 }
 function checkQL(r, action) { if (!r || r.code !== 200) throw new Error('青龙' + action + '失败，请检查开放平台权限'); return r.data; }
 function fields(env) { return String(env.remarks || '').split('丨'); }
@@ -132,7 +141,7 @@ async function phoneLogin(sender, ql, owner) {
   const captcha = await privateInput(sender, '验证码已发送，请输入短信验证码（2 分钟内有效）。');
   if (!captcha) return;
   if (!/^[0-9]{4,8}$/.test(captcha)) { await sender.reply('验证码格式不正确，请重新发送“网易云手机登录”。'); return; }
-  const result = await music('w/login/cellphone', {type:'1', https:'true', phone, countrycode:'86', captcha, remember:'true', secureCaptcha:''});
+  const result = await musicPhoneLogin({type:'1', https:'true', phone, countrycode:86, captcha, remember:'true'});
   if (result.data.code === 10004) throw new Error('网易云拒绝本次手机登录（10004），可能触发安全限制；请稍后再试或选择扫码登录');
   if (result.data.code === 503) throw new Error('网易云提示验证码错误或已失效，请重新发送验证码后重试');
   if (result.data.code !== 200) throw new Error('手机登录失败（网易云返回 ' + String(result.data.code || '异常') + '），请稍后重试或选择扫码登录');
