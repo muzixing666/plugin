@@ -14,5 +14,21 @@
     "public": true,
     "admin": false,
     "disable": false
+  },
+  "plugins/简洁功能菜单.js": {
+    "id": "简洁功能菜单",
+    "name": "简洁功能菜单",
+    "title": "简洁功能菜单",
+    "type": "javascript",
+    "path": "plugins/简洁功能菜单.js",
+    "version": "v1.0.0",
+    "desc": "发送功能菜单，按已安装、启用状态展示常用文字指令。",
+    "rule": "^功能菜单$",
+    "icon": "",
+    "author": "muzixing666",
+    "class": "工具类",
+    "public": true,
+    "admin": false,
+    "disable": false
   }
 }
