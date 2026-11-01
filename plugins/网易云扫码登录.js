@@ -1,14 +1,14 @@
 // [title: 网易云扫码登录]
 // [language: javascript]
-// [rule: ^网易云登录$]
+// [rule: ^网易云(登录|查询|删除)$]
 // [platform: qq,qb,wx,gw,sb,wb,tg,tb,qx,xy,ip]
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.0.0]
+// [version: 1.1.0]
 // [author: muzixing666]
-// [description: 私聊发送“网易云登录”，使用网易云音乐 App 扫码，将 MUSIC_U 写入青龙 NETEASE_MUSIC_U。依赖 Node.js qrcode。]
-// [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改权限。"}]
+// [description: 私聊发送“网易云登录、网易云查询、网易云删除”，支持绑定聊天用户并管理自己的账号。依赖 Node.js qrcode。]
+// [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
 'use strict';
 const crypto = require('crypto');
 const https = require('https');
@@ -41,34 +41,69 @@ async function music(path, data, musicU = "") {
   return request('https://music.163.com/weapi/' + path, {method:'POST', body, headers:{'Content-Type':'application/x-www-form-urlencoded','User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36','Referer':'https://music.163.com/','Origin':'https://music.163.com','Cookie':'os=pc; appver=2.10.6;' + (musicU ? ' MUSIC_U=' + musicU + ';' : '')}});
 }
 function checkQL(r, action) { if (!r || r.code !== 200) throw new Error('青龙' + action + '失败，请检查开放平台权限'); return r.data; }
-async function qinglong(config, value, uid) {
+function fields(env) { return String(env.remarks || '').split('丨'); }
+function ownerFields(owner) { return ['绑定平台:' + encodeURIComponent(owner.platform), '绑定用户:' + encodeURIComponent(owner.user)]; }
+function owns(env, owner) { const parts = fields(env); return ownerFields(owner).every(x => parts.includes(x)); }
+function envUID(env) { const field = fields(env).find(x => /^网易云UID:[0-9]+$/.test(x)); return field ? field.slice(7) : ''; }
+async function connectQL(config) {
   const p = config.split('丨').map(x => x.trim());
   if (p.length !== 3 || p.some(x => !x)) throw new Error('请先正确配置青龙连接：地址丨Client ID丨Client Secret');
   const base = p[0].replace(/\/+$/, ''); const u = new URL(base); if (!['http:', 'https:'].includes(u.protocol)) throw new Error('青龙地址格式不正确');
   const tokenUrl = new URL(base + '/open/auth/token'); tokenUrl.searchParams.set('client_id', p[1]); tokenUrl.searchParams.set('client_secret', p[2]);
   const auth = checkQL((await request(tokenUrl.toString())).data, '认证'); if (!auth || !auth.token) throw new Error('青龙认证未返回令牌');
-  const headers = {'Authorization':'Bearer ' + auth.token, 'Content-Type':'application/json'};
-  const envs = checkQL((await request(base + '/open/envs?searchValue=' + NAME, {headers})).data, '读取变量');
+  return {base, headers: {'Authorization':'Bearer ' + auth.token, 'Content-Type':'application/json'}};
+}
+async function listQL(ql) {
+  const envs = checkQL((await request(ql.base + '/open/envs?searchValue=' + NAME, {headers:ql.headers})).data, '读取变量');
   if (!Array.isArray(envs)) throw new Error('青龙变量列表格式异常');
-  const matches = envs.filter(e => e.name === NAME);
-  const marker = '网易云UID:' + uid;
-  const same = matches.filter(e => String(e.remarks || '').split('丨').includes(marker));
+  return envs.filter(e => e.name === NAME);
+}
+async function qinglong(ql, value, uid, owner) {
+  const matches = await listQL(ql); const marker = '网易云UID:' + uid;
+  const same = matches.filter(e => fields(e).includes(marker));
   if (same.length > 1) throw new Error('青龙存在多条相同账号的变量，请管理员整理后重试');
-  const record = {name: NAME, value};
-  let method = 'POST', payload = [record];
-  if (same.length === 1) { const old = same[0]; const id = old.id || old._id; if (!id) throw new Error('青龙变量缺少 ID'); record.id = id; record.remarks = old.remarks || ''; method = 'PUT'; payload = record; }
-  else record.remarks = marker;
-  checkQL((await request(base + '/open/envs', {method, headers, body:JSON.stringify(payload)})).data, '保存变量');
+  const record = {name:NAME, value}; let method = 'POST', payload = [record];
+  if (same.length) {
+    const old = same[0], parts = fields(old);
+    const hasOwner = parts.some(x => x.startsWith('绑定平台:') || x.startsWith('绑定用户:'));
+    if (hasOwner && !owns(old, owner)) throw new Error('该网易云账号已绑定其他用户，请联系管理员处理');
+    const id = old.id || old._id; if (!id) throw new Error('青龙变量缺少 ID');
+    record.id = id; record.remarks = hasOwner ? old.remarks : parts.filter(Boolean).concat(ownerFields(owner)).join('丨');
+    method = 'PUT'; payload = record;
+  } else record.remarks = [marker, ...ownerFields(owner)].join('丨');
+  checkQL((await request(ql.base + '/open/envs', {method, headers:ql.headers, body:JSON.stringify(payload)})).data, '保存变量');
   return same.length ? '更新' : '新增';
+}
+async function accountMenu(sender, ql, owner, deleting) {
+  const accounts = (await listQL(ql)).filter(e => owns(e, owner) && envUID(e) && (e.id || e._id));
+  if (!accounts.length) { await sender.reply('你还没有绑定网易云账号。请私聊发送“网易云登录”。'); return; }
+  const lines = accounts.map((e, i) => `${i + 1}. 网易云 UID：${envUID(e)}${Number(e.status) === 1 ? '（青龙变量已禁用）' : ''}`);
+  await sender.reply('你绑定的网易云账号：\n' + lines.join('\n') + (deleting ? '\n回复序号选择要删除的账号，回复 q 取消（60 秒内有效）。' : ''));
+  if (!deleting) return;
+  const choice = String(await sender.listen(60000) || '').trim();
+  if (!/^[1-9][0-9]*$/.test(choice) || Number(choice) > accounts.length) { await sender.reply('已取消删除。'); return; }
+  const selected = accounts[Number(choice) - 1]; const selectedId = String(selected.id || selected._id); const uid = envUID(selected);
+  await sender.reply('将删除网易云 UID：' + uid + ' 的青龙登录信息。回复“确认删除”继续，其他内容取消（60 秒内有效）。');
+  if (String(await sender.listen(60000) || '').trim() !== '确认删除') { await sender.reply('已取消删除。'); return; }
+  const current = (await listQL(ql)).filter(e => String(e.id || e._id || '') === selectedId && owns(e, owner) && envUID(e) === uid);
+  if (current.length !== 1) throw new Error('账号信息已变化，未执行删除，请重新查询');
+  checkQL((await request(ql.base + '/open/envs', {method:'DELETE', headers:ql.headers, body:JSON.stringify([selected.id || selected._id])})).data, '删除变量');
+  await sender.reply('已删除网易云 UID：' + uid + ' 的青龙登录信息及绑定。');
 }
 async function main() {
   const sender = new middleware.Sender(middleware.getSenderID());
   const chat = String((await sender.getChatID()) || '').trim();
-  if (chat && chat !== '0') { await sender.reply('请私聊机器人发送“网易云登录”，不要在群聊中扫码。'); return; }
+  if (chat && chat !== '0') { await sender.reply('请私聊机器人使用网易云账号管理功能。'); return; }
+  const owner = {platform:String(await sender.getImtype() || '').trim(), user:String(await sender.getUserID() || '').trim()};
+  if (!owner.platform || !owner.user) { await sender.reply('无法识别当前用户，请换用支持私聊的平台。'); return; }
+  const command = String(await sender.getMessage() || '').trim();
   const config = String((await middleware.bucketGet('netease_login', 'ql_config')) || '').trim();
   if (config.split('丨').length !== 3 || config.split('丨').some(x => !x.trim())) { await sender.reply('插件尚未配置青龙连接，请联系管理员。'); return; }
-  let QRCode; try { QRCode = require('qrcode'); } catch (_) { await sender.reply('缺少 Node.js 依赖 qrcode，请在羽化面板依赖管理中安装后重试。'); return; }
   try {
+    const ql = await connectQL(config);
+    if (command === '网易云查询' || command === '网易云删除') { await accountMenu(sender, ql, owner, command === '网易云删除'); return; }
+    if (command !== '网易云登录') return;
+    let QRCode; try { QRCode = require('qrcode'); } catch (_) { await sender.reply('缺少 Node.js 依赖 qrcode，请在羽化面板依赖管理中安装后重试。'); return; }
     const created = await music('login/qrcode/unikey', {type:3}); const key = created.data && created.data.unikey;
     if (created.data.code !== 200 || !key) throw new Error('获取网易云登录二维码失败');
     const qr = await QRCode.toDataURL('https://music.163.com/login?codekey=' + encodeURIComponent(key));
@@ -87,13 +122,13 @@ async function main() {
         const account = await music('nuser/account/get', {}, value);
         const uid = account.data && account.data.account && account.data.account.id;
         if (account.data.code !== 200 || !uid) throw new Error('无法确认网易云账号，青龙变量未修改');
-        const action = await qinglong(config, value, String(uid));
-        await sender.reply('网易云登录成功，已' + action + '青龙变量 NETEASE_MUSIC_U。'); return;
+        const action = await qinglong(ql, value, String(uid), owner);
+        await sender.reply('网易云登录成功，已绑定当前用户并' + action + '青龙变量 NETEASE_MUSIC_U。'); return;
       }
       if (![801,802].includes(code)) throw new Error('网易云登录状态异常（' + String(code) + '）');
     }
     await sender.reply('等待扫码超时，请重新发送“网易云登录”。');
-  } catch (e) { await sender.reply('网易云登录未完成：' + (e.message || '请求失败')); }
+  } catch (e) { await sender.reply('网易云操作未完成：' + (e.message || '请求失败')); }
 }
 if (require.main === module) main().catch(() => {});
 
