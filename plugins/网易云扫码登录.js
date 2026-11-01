@@ -1,3 +1,4 @@
+// [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/netease.svg]
 // [title: 网易云扫码登录]
 // [language: javascript]
 // [rule: ^网易云(登录|手机登录|Cookie登录|查询|删除)$]
@@ -5,7 +6,7 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.8.0]
+// [version: 1.8.1]
 // [author: muzixing666]
 // [description: 支持网易云登录、官方账号资产及任务状态查询、删除青龙绑定。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]

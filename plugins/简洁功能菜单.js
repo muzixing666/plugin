@@ -1,3 +1,4 @@
+// [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/menu.svg]
 // [title: 简洁功能菜单]
 // [language: javascript]
 // [rule: ^菜单$]
@@ -5,7 +6,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.4.0]
+// [version: 2.4.1]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
