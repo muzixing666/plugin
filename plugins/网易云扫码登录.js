@@ -5,7 +5,7 @@
 // [admin: false]
 // [public: true]
 // [disable: false]
-// [version: 1.3.0]
+// [version: 1.3.1]
 // [author: muzixing666]
 // [description: 私聊发送网易云登录，选择扫码、手机验证码或 Cookie 登录；支持 q 和超时退出。依赖 Node.js qrcode。]
 // [param: {"required":true,"key":"netease_login.ql_config","bool":false,"name":"青龙连接","placeholder":"地址丨Client ID丨Client Secret","desc":"填写青龙开放平台应用信息，用中文竖线丨分隔；应用需有环境变量的查看、新增、修改、删除权限。"}]
@@ -133,7 +133,9 @@ async function phoneLogin(sender, ql, owner) {
   if (!captcha) return;
   if (!/^[0-9]{4,8}$/.test(captcha)) { await sender.reply('验证码格式不正确，请重新发送“网易云手机登录”。'); return; }
   const result = await music('w/login/cellphone', {type:'1', https:'true', phone, countrycode:'86', captcha, remember:'true', secureCaptcha:''});
-  if (result.data.code !== 200) throw new Error('手机登录失败（网易云返回 ' + String(result.data.code || '异常') + '），验证码可能错误、过期或需要额外验证');
+  if (result.data.code === 10004) throw new Error('网易云拒绝本次手机登录（10004），可能触发安全限制；请稍后再试或选择扫码登录');
+  if (result.data.code === 503) throw new Error('网易云提示验证码错误或已失效，请重新发送验证码后重试');
+  if (result.data.code !== 200) throw new Error('手机登录失败（网易云返回 ' + String(result.data.code || '异常') + '），请稍后重试或选择扫码登录');
   await saveLogin(sender, ql, owner, cookieFromResponse(result));
 }
 async function main() {
