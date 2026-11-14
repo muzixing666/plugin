@@ -9,7 +9,7 @@
 # [author: muzixing666]
 # [version: 1.6.0-yh]
 # [description: 必应积分每日搜索、每日集、精选任务、查询和领取；使用羽化面板存储。邀请链接 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae ]
-# [param: {"required":true,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
+# [param: {"required":false,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
 # [param: {"required":false,"key":"bing_rewards.search_times","bool":false,"name":"每日搜索目标","placeholder":"15","desc":"最多20次；按微软页面进度补足。"}]
 # [param: {"required":false,"key":"bing_rewards.delay","bool":false,"name":"请求间隔","placeholder":"3-8","desc":"单位秒，例如 3-8。"}]
 # [param: {"required":false,"key":"bing_rewards.wait_seconds","bool":false,"name":"积分到账等待","placeholder":"60","desc":"执行完成后等待积分到账的秒数。"}]
