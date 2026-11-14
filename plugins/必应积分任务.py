@@ -7,8 +7,8 @@
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.7.0-yh]
-# [description: 完成必应搜索、每日集和精选活动可获得 Microsoft Rewards 积分，积分可兑换账户所在地区提供的奖励；实际积分和可兑换项目以微软页面为准。邀请链接 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae ]
+# [version: 1.8.0-yh]
+# [description: 完成必应搜索、每日集和精选活动可获得 Microsoft Rewards 积分，可兑换所在地区提供的礼品卡、捐赠等；积分和奖励以微软页面为准。邀请链接：https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae。Cookie 获取：电脑 Edge 或 Chrome 登录 https://cn.bing.com/ 并打开积分面板，按 F12 选择网络并刷新，点击 cn.bing.com 网页请求，在标头的请求标头中复制 Cookie 完整内容；私聊机器人发送必应登录后按提示发送 Cookie。Cookie 是登录凭证，请勿发到群聊。 ]
 # [param: {"required":false,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
 # [param: {"required":false,"key":"bing_rewards.search_times","bool":false,"name":"每日搜索目标","placeholder":"15","desc":"最多20次；按微软页面进度补足。"}]
 # [param: {"required":false,"key":"bing_rewards.delay","bool":false,"name":"请求间隔","placeholder":"3-8","desc":"单位秒，例如 3-8。"}]
@@ -583,8 +583,7 @@ def check_points(session):
         r = session.get(REWARDS_PANEL, headers=get_headers(PC_UA), timeout=8)
         if r.status_code == 200:
             for pat in [r'"availablePoints"\s*:\s*(\d+)',
-                        r'"Balance"\s*:\s*(\d+)',
-                        r'(\d{1,3}(?:,\d{3})+)\s*<']:
+                        r'"Balance"\s*:\s*(\d+)']:
                 m = re.search(pat, r.text)
                 if m:
                     return int(m.group(1).replace(",", ""))
@@ -1396,7 +1395,7 @@ def panel_main():
         except Exception:
             sender.reply('代理配置不可用，请联系管理员检查。'); return
         score = check_points(make_session(record['cookie']))
-        sender.reply('当前积分：%s' % score if score is not None else '查询失败，请检查 Cookie、代理和网络。'); return
+        sender.reply('Cookie 验证通过，当前积分：%s' % score if score is not None else '无法验证 Cookie，可能是登录失效、代理或网络问题；请检查后重试。'); return
 
     config = {'BING_SEARCH_TIMES': middleware.bucketGet('bing_rewards', 'search_times'),
               'BING_DELAY': middleware.bucketGet('bing_rewards', 'delay'),
@@ -1417,12 +1416,25 @@ def panel_main():
     def execute(key, record):
         cookie = record.get('cookie') or ''
         if not cookie: return False
-        os.environ['by'] = cookie
         try: proxy = set_proxy(key)
         except Exception:
             print('代理配置不可用，本账号未执行。')
             return False
-        capture, error = Capture([cookie, proxy]), ''
+        cookies = [item.strip() for item in re.split(r'[\n#]', cookie) if item.strip()]
+        valid = []
+        checks = []
+        for index, item in enumerate(cookies, 1):
+            score = check_points(make_session(item))
+            checks.append({'account': index, 'status': 'valid' if score is not None else 'unconfirmed'})
+            if score is not None: valid.append(item)
+            else: print('账号%s的 Cookie 无法验证，请检查登录状态、代理与网络，已跳过。' % index)
+        check_saved = middleware.bucketSet('bing_rewards_results', key + ':cookie_check', json.dumps({
+            'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'accounts': checks
+        }, ensure_ascii=False))
+        if not check_saved: print('Cookie 检测结果保存失败。')
+        if not valid: return False
+        os.environ['by'] = '\n'.join(valid)
+        capture, error = Capture([cookie, proxy] + cookies), ''
         try:
             with contextlib.redirect_stdout(capture): run_rewards()
         except Exception as exc:
@@ -1436,7 +1448,7 @@ def panel_main():
             sender.reply('你还没有绑定账号，请发送“必应登录”。'); return
         sender.reply('开始执行，请稍候。')
         ok = execute(owner, record)
-        sender.reply('执行结束，积分到账请以微软页面为准。' if ok else '执行或保存记录失败，请联系管理员查看日志。')
+        sender.reply('执行结束，积分到账请以微软页面为准。' if ok else '任务未执行或记录保存失败；请检查 Cookie、代理和网络，或联系管理员查看日志。')
         return
     # 定时任务逐个处理社媒用户；保留原有管理员面板 Cookie 的兼容性。
     keys = list(middleware.bucketAllKeys(bucket))

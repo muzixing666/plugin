@@ -6,7 +6,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.5.0]
+// [version: 2.4.1]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
@@ -66,8 +66,7 @@ function sourceMetadata(dir) {
         const title=header.match(/^\s*(?:#|\/\/)\s*\[title:\s*([^\]]+)\]/im)?.[1]?.trim();
         const platforms=header.match(/^\s*(?:#|\/\/)\s*\[platform:\s*([^\]]+)\]/im)?.[1]?.split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
         const hidden=/^\s*(?:#|\/\/)\s*\[menu_hidden:\s*true\s*\]/im.test(header);
-        const description=header.match(/^\s*(?:#|\/\/)\s*\[description:\s*([^\]]+)\]/im)?.[1]?.trim();
-        if(title) { const current=out.get(title)||[]; current.push({platforms,hidden,description}); out.set(title,current); }
+        if(title) { const current=out.get(title)||[]; current.push({platforms,hidden}); out.set(title,current); }
       } catch (_) {}
     }
   } catch (_) {}
@@ -93,9 +92,7 @@ function visibleRows(rows, meta, platform, admin, settings={}) {
     const list=Object.prototype.hasOwnProperty.call(customCommands,title) ? customCommands[title].split(/[,，、]/).map(x=>x.trim()).filter(Boolean) : commands(p.rule);
     if(!list.length) continue;
     const displayName=String(names[title] || title).replace(/[\r\n]/g,' ').slice(0,80);
-    const sourceDescription=(sources.find(x=>x.description)||{}).description || p.desc;
-    const invite=title==='必应积分任务' ? String(sourceDescription || '').match(/https:\/\/rewards\.bing\.com\/welcome\?[^\s<>]+/)?.[0] || '' : '';
-    output.push({title:displayName,originalTitle:title,sourceId:String(p.id || title),commands:list,description:briefDescription(intros[title] || sourceDescription),invite});
+    output.push({title:displayName,originalTitle:title,sourceId:String(p.id || title),commands:list,description:briefDescription(intros[title] || p.desc)});
   }
   return output.sort((a,b)=>{const ai=order.indexOf(a.originalTitle),bi=order.indexOf(b.originalTitle); if(ai!==bi) return (ai<0?Infinity:ai)-(bi<0?Infinity:bi); return a.title.localeCompare(b.title,'zh-CN');});
 }
@@ -181,19 +178,7 @@ function renderedItems(rows,meta,platform,admin,values,schema,customCount) {
     const restricted=new Set(String(get('admin_commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean));
     const list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(x=>x && (admin || !restricted.has(x)));
     if(!title || !list.length) continue;
-    const intro=briefDescription(get('intro'));
-    const description=item.invite ? [
-      '完成符合条件的必应搜索、每日集和精选活动可获得 Microsoft Rewards 积分。积分可兑换所在地区提供的礼品卡、捐赠等，任务、积分及兑换内容以微软页面为准。',
-      '邀请链接：'+item.invite,
-      '',
-      'Cookie 获取方法：',
-      '1. 用电脑 Edge 或 Chrome 登录 https://cn.bing.com/，打开积分面板确认账号可用。',
-      '2. 按 F12，打开“网络 / Network”后刷新页面。',
-      '3. 选择 cn.bing.com 的网页请求，在“标头 / Headers → 请求标头 / Request Headers”中找到 Cookie，复制其完整内容。',
-      '4. 私聊机器人发送“必应登录”，按提示发送 Cookie；失效时重新获取。',
-      'Cookie 是登录凭证，请勿发到群聊，仅发送给信任的机器人。'
-    ].join('\n') : intro;
-    out.push({title:title.slice(0,80),description,commands:list,order:Number(get('order'))||0});
+    out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
   }
   for(let i=1;i<=customCount;i++) {
     const key='custom_'+i,get=suffix=>valueOr(values,key+'_'+suffix,defaults[key+'_'+suffix]);
