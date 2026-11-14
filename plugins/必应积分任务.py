@@ -1,13 +1,13 @@
 # [title: 必应积分任务]
 # [language: python]
-# [rule: ^必应(运行|查询)$]
+# [rule: ^必应(登录|Cookie登录|账号登录|查询|积分|运行|代理|删除)$]
 # [cron: 20 8 * * *]
 # [platform: qq,qb,wx,gw,sb,wb,tg,tb,qx,xy,ip]
-# [admin: true]
+# [admin: false]
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.4.1-yh1]
+# [version: 1.5.0-yh]
 # [description: 必应积分每日搜索、每日集、精选任务、查询和领取；使用羽化面板存储。邀请链接 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae ]
 # [param: {"required":true,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
 # [param: {"required":false,"key":"bing_rewards.search_times","bool":false,"name":"每日搜索目标","placeholder":"15","desc":"最多20次；按微软页面进度补足。"}]
@@ -173,6 +173,9 @@ def get_search_term():
 
 def make_session(cookie_str):
     session = requests.Session()
+    session.trust_env = False
+    proxy = os.getenv("BING_PROXY", "").strip()
+    if proxy: session.proxies.update({"http": proxy, "https": proxy})
     for key, value in parse_cookie(cookie_str).items():
         session.cookies.set(key, value, domain=".bing.com", path="/")
     return session
@@ -1299,38 +1302,100 @@ def run_rewards():
 # === 脚本来自于 http://ql.xmox.cn 脚本库 ===
 
 
+
 def panel_main():
     import contextlib
     import io
+    import hashlib
     import sys
+    from urllib.parse import urlsplit
     from autman import middleware
+
     sender = middleware.Sender(middleware.getSenderID())
     msg = str(sender.getMessage() or '').strip()
-    if msg in ('必应运行', '必应查询') and not sender.isAdmin():
-        return
-    cookie = str(middleware.bucketGet('bing_rewards', 'cookie') or '').strip()
-    if not cookie:
-        text = '请先在羽化面板插件设置中填写必应 Cookie。'
-        print(text)
-        if msg in ('必应运行', '必应查询'): sender.reply(text)
-        return
-    if msg == '必应查询':
-        last = str(middleware.bucketGet('bing_rewards', 'last_result') or '').strip()
+    commands = ('必应登录', '必应Cookie登录', '必应账号登录', '必应查询', '必应积分', '必应运行', '必应代理', '必应删除')
+    interactive = msg in commands
+    owner = ''
+    if interactive:
+        chat = str(sender.getChatID() or '').strip()
+        if chat and chat != '0':
+            sender.reply('请私聊机器人管理必应账号。')
+            return
+        platform = str(sender.getImtype() or '').strip()
+        user = str(sender.getUserID() or '').strip()
+        if not platform or not user:
+            sender.reply('无法识别用户，请使用支持私聊的平台。')
+            return
+        owner = hashlib.sha256((platform + '\x00' + user).encode()).hexdigest()
+
+    bucket = 'bing_rewards_accounts'
+    def load(key):
         try:
-            accounts = [x.strip() for x in re.split(r'[\n#]', cookie) if x.strip()]
-            result = []
-            for index, item in enumerate(accounts, 1):
-                score = check_points(make_session(item))
-                result.append('账号%s：%s' % (index, str(score) + ' 积分' if score is not None else '查询失败'))
-            text = '\n'.join(result)
-            if last:
-                prev = json.loads(last)
-                text += '\n最近运行：' + prev.get('time', '未知')
-        except Exception:
-            text = '查询失败，请检查 Cookie 和网络。'
-        sender.reply(text)
-        return
-    config = {'by': cookie, 'BING_SEARCH_TIMES': middleware.bucketGet('bing_rewards', 'search_times'),
+            obj = json.loads(str(middleware.bucketGet(bucket, key) or '{}'))
+            return obj if isinstance(obj, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    def save(key, value):
+        return middleware.bucketSet(bucket, key, json.dumps(value, ensure_ascii=False))
+    def proxy_valid(value):
+        try:
+            u = urlsplit(value)
+            return u.scheme in ('http', 'https') and bool(u.hostname) and bool(u.port) and not u.path.strip('/') and not u.query and not u.fragment
+        except ValueError:
+            return False
+    def set_proxy(value):
+        if value: os.environ['BING_PROXY'] = value
+        else: os.environ.pop('BING_PROXY', None)
+    def receive(timeout=120000):
+        return str(sender.input(timeout, 1000, False) or '').strip()
+    def reply(text):
+        if interactive: sender.reply(text)
+        else: print(text)
+    if msg in ('必应登录', '必应Cookie登录'):
+        sender.reply('请私聊发送 cn.bing.com 登录后的完整 Cookie；发送 q 取消。输入消息将尝试撤回。')
+        value = receive()
+        if not value or value.lower() in ('q', '取消'):
+            sender.reply('已取消或等待超时。'); return
+        if len(value) > 20000 or not parse_cookie(value):
+            sender.reply('Cookie 格式无效，请重新发送“必应登录”。'); return
+        record = load(owner)
+        set_proxy(record.get('proxy', ''))
+        score = check_points(make_session(value))
+        if score is None:
+            sender.reply('未能验证 Cookie，请确认账号已开通积分并检查代理与网络；原账号未更改。'); return
+        record.update({'cookie': value, 'platform': platform, 'user': user})
+        if not save(owner, record):
+            sender.reply('保存失败，请联系管理员检查面板存储。'); return
+        sender.reply('登录成功，当前积分：%s。' % score); return
+    if msg == '必应账号登录':
+        sender.reply('微软账号密码登录可能需要验证码或多重验证，目前请先在微软官方页面登录，再发送“必应Cookie登录”。请勿在聊天中发送密码。'); return
+    if msg == '必应代理':
+        record = load(owner)
+        sender.reply('发送代理地址，格式 http://地址:端口 或 http://用户名:密码@地址:端口；发送“关闭”移除代理，发送 q 取消。')
+        value = receive()
+        if not value or value.lower() in ('q', '取消'):
+            sender.reply('已取消或等待超时。'); return
+        if value == '关闭': value = ''
+        elif not proxy_valid(value):
+            sender.reply('代理格式无效，仅支持 HTTP/HTTPS 代理。'); return
+        record.update({'proxy': value, 'platform': platform, 'user': user})
+        sender.reply('代理设置已保存。' if save(owner, record) else '保存失败，请联系管理员。'); return
+    if msg == '必应删除':
+        sender.reply('回复“确认删除”删除你的必应账号和代理设置；回复其他内容取消。')
+        if receive(60000) != '确认删除':
+            sender.reply('已取消删除。'); return
+        ok = middleware.bucketDel(bucket, owner)
+        middleware.bucketDel('bing_rewards_results', owner)
+        sender.reply('已删除。' if ok else '删除失败，请联系管理员。'); return
+    if msg in ('必应查询', '必应积分'):
+        record = load(owner)
+        if not record.get('cookie'):
+            sender.reply('你还没有绑定账号，请发送“必应登录”。'); return
+        set_proxy(record.get('proxy', ''))
+        score = check_points(make_session(record['cookie']))
+        sender.reply('当前积分：%s' % score if score is not None else '查询失败，请检查 Cookie、代理和网络。'); return
+
+    config = {'BING_SEARCH_TIMES': middleware.bucketGet('bing_rewards', 'search_times'),
               'BING_DELAY': middleware.bucketGet('bing_rewards', 'delay'),
               'BING_WAIT_SECONDS': middleware.bucketGet('bing_rewards', 'wait_seconds'),
               'BING_OFFERS': middleware.bucketGet('bing_rewards', 'offers'),
@@ -1340,21 +1405,46 @@ def panel_main():
         if value is not None and str(value).strip(): os.environ[key] = str(value).strip()
         else: os.environ.pop(key, None)
     class Capture:
-        def __init__(self): self.buffer = io.StringIO()
-        def write(self, text): self.buffer.write(text); sys.__stdout__.write(text); return len(text)
+        def __init__(self, secrets): self.buffer = io.StringIO(); self.secrets = secrets
+        def write(self, text):
+            for secret in self.secrets:
+                if secret: text = text.replace(secret, "[已隐藏]")
+            self.buffer.write(text); sys.__stdout__.write(text); return len(text)
         def flush(self): sys.__stdout__.flush()
-    capture = Capture()
-    error = ''
-    try:
-        with contextlib.redirect_stdout(capture): run_rewards()
-    except Exception as exc:
-        error = type(exc).__name__
-    output = capture.buffer.getvalue()
-    record = {'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'output': output[-30000:], 'error': error}
-    saved = middleware.bucketSet('bing_rewards', 'last_result', json.dumps(record, ensure_ascii=False))
-    text = ('必应任务执行异常：' + error if error else '必应任务执行结束，请查看运行日志和微软积分面板确认到账。')
-    if not saved: text += '\n运行记录保存失败。'
-    print(text)
-    if msg in ('必应运行', '必应查询'): sender.reply(text)
+    def execute(key, record):
+        cookie = record.get('cookie') or ''
+        if not cookie: return False
+        os.environ['by'] = cookie
+        set_proxy(record.get('proxy', ''))
+        capture, error = Capture([cookie, record.get('proxy', '')]), ''
+        try:
+            with contextlib.redirect_stdout(capture): run_rewards()
+        except Exception as exc:
+            error = type(exc).__name__
+        result = {'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'output': capture.buffer.getvalue()[-30000:], 'error': error}
+        saved = middleware.bucketSet('bing_rewards_results', key, json.dumps(result, ensure_ascii=False))
+        return not error and bool(saved)
+    if msg == '必应运行':
+        record = load(owner)
+        if not record.get('cookie'):
+            sender.reply('你还没有绑定账号，请发送“必应登录”。'); return
+        sender.reply('开始执行，请稍候。')
+        ok = execute(owner, record)
+        sender.reply('执行结束，积分到账请以微软页面为准。' if ok else '执行或保存记录失败，请联系管理员查看日志。')
+        return
+    # 定时任务逐个处理社媒用户；保留原有管理员面板 Cookie 的兼容性。
+    keys = list(middleware.bucketAllKeys(bucket))
+    seen = set()
+    for key in keys:
+        record = load(str(key))
+        cookie = record.get('cookie') or ''
+        digest = hashlib.sha256(cookie.encode()).hexdigest() if cookie else ''
+        if digest and digest not in seen:
+            seen.add(digest)
+            execute(str(key), record)
+    legacy = str(middleware.bucketGet('bing_rewards', 'cookie') or '').strip()
+    if legacy and hashlib.sha256(legacy.encode()).hexdigest() not in seen:
+        execute('legacy', {'cookie': legacy})
+    print('必应积分定时任务结束。')
 
 if __name__ == '__main__': panel_main()
