@@ -1,13 +1,13 @@
 # [title: 必应积分任务]
 # [language: python]
-# [rule: ^必应(登录|Cookie登录|账号登录|查询|积分|运行|代理|删除)$]
+# [rule: ^必应(登录|Cookie登录|账号登录|查询|积分|运行|删除)$]
 # [cron: 20 8 * * *]
 # [platform: qq,qb,wx,gw,sb,wb,tg,tb,qx,xy,ip]
 # [admin: false]
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.5.0-yh]
+# [version: 1.6.0-yh]
 # [description: 必应积分每日搜索、每日集、精选任务、查询和领取；使用羽化面板存储。邀请链接 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae ]
 # [param: {"required":true,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
 # [param: {"required":false,"key":"bing_rewards.search_times","bool":false,"name":"每日搜索目标","placeholder":"15","desc":"最多20次；按微软页面进度补足。"}]
@@ -16,6 +16,11 @@
 # [param: {"required":false,"key":"bing_rewards.offers","bool":false,"name":"执行每日精选","placeholder":"1 开启，0 关闭","desc":"默认开启。"}]
 # [param: {"required":false,"key":"bing_rewards.checkin","bool":false,"name":"尝试签到","placeholder":"1 开启，0 关闭","desc":"网页签到不一定有效。"}]
 # [param: {"required":false,"key":"bing_rewards.claim","bool":false,"name":"领取待领取积分","placeholder":"1 开启，0 关闭","desc":"默认开启。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_mode","bool":false,"name":"代理模式","placeholder":"direct / fixed / pool / api","desc":"direct 直连；fixed 固定代理；pool 代理池；api 代理接口。留空默认直连。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_fixed","bool":false,"name":"固定代理","placeholder":"http://地址:端口","desc":"仅 fixed 模式使用；支持用户名密码。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_pool","bool":false,"name":"代理池","placeholder":"http://地址1:端口, http://地址2:端口","desc":"仅 pool 模式使用；多个代理用逗号或换行分隔。按账号稳定选择。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_api","bool":false,"name":"代理 API 地址","placeholder":"https://代理商接口地址","desc":"仅 api 模式使用；接口返回 IP:端口 或包含代理地址的 JSON。每次执行获取一次。"}]
+
 # 适配来源：用户提供的《必应积分助手 v1.4.1》，作者满天星；保留来源声明。
 # 当前脚本来自于  http://ql.xmox.cn 脚本库下载！
 # 脚本库官方QQ群：619866778
@@ -1303,6 +1308,63 @@ def run_rewards():
 
 
 
+
+def normalize_proxy(value):
+    from urllib.parse import urlsplit
+    value = str(value or '').strip()
+    if not value: raise ValueError('代理为空')
+    if '://' not in value: value = 'http://' + value
+    try:
+        u = urlsplit(value)
+        if u.scheme not in ('http', 'https') or not u.hostname or not u.port or u.path not in ('', '/') or u.query or u.fragment:
+            raise ValueError('代理格式错误')
+    except ValueError:
+        raise ValueError('代理格式错误')
+    return value.rstrip('/')
+
+def parse_proxy_response(value):
+    if isinstance(value, str):
+        value = value.strip()
+        if not value: raise ValueError('代理 API 返回空内容')
+        try: return parse_proxy_response(json.loads(value))
+        except json.JSONDecodeError: return normalize_proxy(value.splitlines()[0].strip())
+    if isinstance(value, list):
+        if not value: raise ValueError('代理 API 返回空列表')
+        return parse_proxy_response(value[0])
+    if isinstance(value, dict):
+        if value.get('ip') and value.get('port'):
+            return normalize_proxy(str(value['ip']) + ':' + str(value['port']))
+        for key in ('proxy', 'address', 'server', 'data', 'result', 'list', 'proxies', 'proxy_list', 'ip_list'):
+            if key in value: return parse_proxy_response(value[key])
+    raise ValueError('无法识别代理 API 返回内容')
+
+def choose_proxy(mode, fixed, pool, api, account_key):
+    import hashlib
+    from urllib.parse import urlsplit
+    mode = str(mode or 'direct').strip().lower()
+    if mode in ('', 'direct', 'off', '0'): return ''
+    if mode == 'fixed': return normalize_proxy(fixed)
+    if mode == 'pool':
+        items = [normalize_proxy(x) for x in re.split(r'[,\n\r]+', str(pool or '')) if x.strip()]
+        if not items: raise ValueError('代理池为空')
+        index = int(hashlib.sha256(str(account_key).encode()).hexdigest(), 16) % len(items)
+        return items[index]
+    if mode == 'api':
+        url = str(api or '').strip()
+        u = urlsplit(url)
+        if u.scheme not in ('http', 'https') or not u.hostname: raise ValueError('代理 API 地址无效')
+        client = requests.Session()
+        client.trust_env = False
+        try:
+            response = client.get(url, timeout=15, allow_redirects=False, stream=True)
+            response.raise_for_status()
+            data = response.raw.read(65537)
+            if len(data) > 65536: raise ValueError('代理 API 返回过大')
+            return parse_proxy_response(data.decode('utf-8-sig'))
+        finally:
+            client.close()
+    raise ValueError('代理模式无效')
+
 def panel_main():
     import contextlib
     import io
@@ -1313,7 +1375,7 @@ def panel_main():
 
     sender = middleware.Sender(middleware.getSenderID())
     msg = str(sender.getMessage() or '').strip()
-    commands = ('必应登录', '必应Cookie登录', '必应账号登录', '必应查询', '必应积分', '必应运行', '必应代理', '必应删除')
+    commands = ('必应登录', '必应Cookie登录', '必应账号登录', '必应查询', '必应积分', '必应运行', '必应删除')
     interactive = msg in commands
     owner = ''
     if interactive:
@@ -1337,15 +1399,15 @@ def panel_main():
             return {}
     def save(key, value):
         return middleware.bucketSet(bucket, key, json.dumps(value, ensure_ascii=False))
-    def proxy_valid(value):
-        try:
-            u = urlsplit(value)
-            return u.scheme in ('http', 'https') and bool(u.hostname) and bool(u.port) and not u.path.strip('/') and not u.query and not u.fragment
-        except ValueError:
-            return False
-    def set_proxy(value):
+    def set_proxy(key):
+        # 管理员配置的代理失败时停止该账号，避免悄悄切换为直连。
+        os.environ.pop('BING_PROXY', None)
+        value = choose_proxy(middleware.bucketGet('bing_rewards', 'proxy_mode'),
+                             middleware.bucketGet('bing_rewards', 'proxy_fixed'),
+                             middleware.bucketGet('bing_rewards', 'proxy_pool'),
+                             middleware.bucketGet('bing_rewards', 'proxy_api'), key)
         if value: os.environ['BING_PROXY'] = value
-        else: os.environ.pop('BING_PROXY', None)
+        return value
     def receive(timeout=120000):
         return str(sender.input(timeout, 1000, False) or '').strip()
     def reply(text):
@@ -1359,7 +1421,9 @@ def panel_main():
         if len(value) > 20000 or not parse_cookie(value):
             sender.reply('Cookie 格式无效，请重新发送“必应登录”。'); return
         record = load(owner)
-        set_proxy(record.get('proxy', ''))
+        try: set_proxy(owner)
+        except Exception:
+            sender.reply('代理配置不可用，请联系管理员检查。'); return
         score = check_points(make_session(value))
         if score is None:
             sender.reply('未能验证 Cookie，请确认账号已开通积分并检查代理与网络；原账号未更改。'); return
@@ -1369,19 +1433,8 @@ def panel_main():
         sender.reply('登录成功，当前积分：%s。' % score); return
     if msg == '必应账号登录':
         sender.reply('微软账号密码登录可能需要验证码或多重验证，目前请先在微软官方页面登录，再发送“必应Cookie登录”。请勿在聊天中发送密码。'); return
-    if msg == '必应代理':
-        record = load(owner)
-        sender.reply('发送代理地址，格式 http://地址:端口 或 http://用户名:密码@地址:端口；发送“关闭”移除代理，发送 q 取消。')
-        value = receive()
-        if not value or value.lower() in ('q', '取消'):
-            sender.reply('已取消或等待超时。'); return
-        if value == '关闭': value = ''
-        elif not proxy_valid(value):
-            sender.reply('代理格式无效，仅支持 HTTP/HTTPS 代理。'); return
-        record.update({'proxy': value, 'platform': platform, 'user': user})
-        sender.reply('代理设置已保存。' if save(owner, record) else '保存失败，请联系管理员。'); return
     if msg == '必应删除':
-        sender.reply('回复“确认删除”删除你的必应账号和代理设置；回复其他内容取消。')
+        sender.reply('回复“确认删除”删除你的必应账号；回复其他内容取消。')
         if receive(60000) != '确认删除':
             sender.reply('已取消删除。'); return
         ok = middleware.bucketDel(bucket, owner)
@@ -1391,7 +1444,9 @@ def panel_main():
         record = load(owner)
         if not record.get('cookie'):
             sender.reply('你还没有绑定账号，请发送“必应登录”。'); return
-        set_proxy(record.get('proxy', ''))
+        try: set_proxy(owner)
+        except Exception:
+            sender.reply('代理配置不可用，请联系管理员检查。'); return
         score = check_points(make_session(record['cookie']))
         sender.reply('当前积分：%s' % score if score is not None else '查询失败，请检查 Cookie、代理和网络。'); return
 
@@ -1415,8 +1470,11 @@ def panel_main():
         cookie = record.get('cookie') or ''
         if not cookie: return False
         os.environ['by'] = cookie
-        set_proxy(record.get('proxy', ''))
-        capture, error = Capture([cookie, record.get('proxy', '')]), ''
+        try: proxy = set_proxy(key)
+        except Exception:
+            print('代理配置不可用，本账号未执行。')
+            return False
+        capture, error = Capture([cookie, proxy]), ''
         try:
             with contextlib.redirect_stdout(capture): run_rewards()
         except Exception as exc:
