@@ -16,60 +16,9 @@
 # [param: {"required":false,"key":"bing_rewards.offers","bool":false,"name":"执行每日精选","placeholder":"1 开启，0 关闭","desc":"默认开启。"}]
 # [param: {"required":false,"key":"bing_rewards.checkin","bool":false,"name":"尝试签到","placeholder":"1 开启，0 关闭","desc":"网页签到不一定有效。"}]
 # [param: {"required":false,"key":"bing_rewards.claim","bool":false,"name":"领取待领取积分","placeholder":"1 开启，0 关闭","desc":"默认开启。"}]
-# 适配来源：用户提供的《必应积分助手 v1.4.1》，作者满天星；保留来源声明。
-# 当前脚本来自于  http://ql.xmox.cn 脚本库下载！
-# 脚本库官方QQ群：619866778
-# 脚本库中的所有脚本文件均来自热心网友上传和互联网收集。
-# 脚本库仅提供文件上传和下载服务，不提供脚本文件的审核。
-# 您在使用脚本库下载的脚本时自行检查判断风险。
-# 所涉及到的 账号安全、数据泄露、设备故障、软件违规封禁、财产损失等问题及法律风险，与脚本库无关！均由开发者、上传者、使用者自行承担。
 
-"""
-必应积分助手（国内版）—— 青龙优化版
-活动地址：https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae
-走走链接谢谢
-====================================
-作者: 满天星
-版本: v1.4.1（2026-11-08）
 
-v1.4.1 新增内容：
-  1. 【领取积分】新增：自动把「可领取」里的积分领掉
-     POST /dashboard  next-action=reportClaimAllPoints  body=[]
-     没有待领取时直接跳过，不浪费请求
-  2. 【上报接口升级】每日集 / 精选任务改走新版 Server Action：
-     POST /earn?section=streaks  next-action=reportActivity
-     body=["<offer hash>",11,{"offerid":"...","isPromotional":"$undefined","timezoneOffset":"-480"}]
-     响应含 1:true 即成功；旧 cn.bing.com/rewardsapp/reportActivity 保留为兜底
-  3. 【action id 自动挖取】action id 每次发版都会变，脚本失效时自动从线上 JS
-     chunk（含懒加载 chunk 映射表）里重新提取 createServerReference 的 id
-  4. 【每日集解析重写】适配新页面 offerId / destination / hash 结构，
-     兼容旧的 destinationUrl 写法；进度改用 dailyset 卡片的 activitiesCompleted
-  5. 【签到】尝试触发并复查签到进度（网页端通常无效，需必应App端，如实提示）
-  6. 【连续打卡】展示 必应搜索 / 每日集 / Edge / 必应App 等进度
-  7. 【未完成任务汇总】结束时列出今日未完成项（含原因）
-  8. 每日搜索改为「补足到上限」：先读页面已得积分，只补差额（省时省流量）
 
-v1.4.0 新增内容：
-  1. 【每日精选任务】解析 rewards.bing.com/earn 的 offer 列表，自动完成
-     「每日箴言」「XX 的图片」等每天 5 分的搜索小任务
-  2. 【连续打卡】解析 /dashboard 的 streak 卡片进度
-  3. 【未完成任务汇总】
-  4. 搜索进度解析加宽，兼容上限调整
-
-环境变量：
-  by         【必填】登录必应后的完整 Cookie（从 cn.bing.com 抓取，浏览器F12→Application→Cookies 复制全部，多账号用换行或 # 分隔）
-  BING_DELAY        搜索/活动间隔秒数，格式 "3-8"（默认 "3-8"）
-  BING_SEARCH_TIMES 每日搜索目标次数，默认 15（国内版前 5 次有积分，上限 20）
-  BING_WAIT_SECONDS 最终积分查询前等待秒数，默认 60（等积分延迟到账）
-  BING_OFFERS       是否执行每日精选任务，默认 1（设为 0 关闭）
-  BING_CHECKIN      是否尝试每日签到，默认 1（设为 0 关闭）
-  BING_CLAIM        是否自动领取待领取积分，默认 1（设为 0 关闭）
-
-依赖：requests
-cron: 20 8 * * *
-建议：脚本放 08:20 跑，积分到账后再补跑一次（如 20:20）能多领到当天新增的待领取积分
-new Env('必应积分助手_国内版_青龙优化版')
-"""
 import json
 import os
 import re
