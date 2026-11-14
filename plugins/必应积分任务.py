@@ -8,7 +8,7 @@
 # [disable: false]
 # [author: muzixing666]
 # [version: 1.8.0-yh]
-# [description: 完成必应搜索、每日集和精选活动可获得 Microsoft Rewards 积分，可兑换所在地区提供的礼品卡、捐赠等；积分和奖励以微软页面为准。邀请链接：https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae。Cookie 获取：电脑 Edge 或 Chrome 登录 https://cn.bing.com/ 并打开积分面板，按 F12 选择网络并刷新，点击 cn.bing.com 网页请求，在标头的请求标头中复制 Cookie 完整内容；私聊机器人发送必应登录后按提示发送 Cookie。Cookie 是登录凭证，请勿发到群聊。 ]
+# [description: 自动完成积分任务，可兑换所在地区提供的礼品卡等。 教程：打开这个网址先注册 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae。Cookie 获取：电脑 Edge 或 Chrome 登录 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae并打开积分面板，按 F12 选择网络并刷新，点击 cn.bing.com 网页请求，在标头的请求标头中复制 Cookie 完整内容；私聊机器人发送必应登录后按提示发送 Cookie。或者通过手机可以获取cookie的浏览器登录获取 ]
 # [param: {"required":false,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
 # [param: {"required":false,"key":"bing_rewards.search_times","bool":false,"name":"每日搜索目标","placeholder":"15","desc":"最多20次；按微软页面进度补足。"}]
 # [param: {"required":false,"key":"bing_rewards.delay","bool":false,"name":"请求间隔","placeholder":"3-8","desc":"单位秒，例如 3-8。"}]
