@@ -6,7 +6,7 @@
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.4.1]
+// [version: 2.5.0]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
@@ -178,7 +178,7 @@ function renderedItems(rows,meta,platform,admin,values,schema,customCount) {
     const restricted=new Set(String(get('admin_commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean));
     const list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(x=>x && (admin || !restricted.has(x)));
     if(!title || !list.length) continue;
-    out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
+    out.push({title:title.slice(0,80),description:String(get('intro') || '').trim() || '暂无介绍',commands:list,order:Number(get('order'))||0});
   }
   for(let i=1;i<=customCount;i++) {
     const key='custom_'+i,get=suffix=>valueOr(values,key+'_'+suffix,defaults[key+'_'+suffix]);
@@ -186,7 +186,7 @@ function renderedItems(rows,meta,platform,admin,values,schema,customCount) {
     const title=String(get('title') || '').trim();
     const restricted=new Set(String(get('admin_commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(Boolean));
     const list=String(get('commands') || '').split(/[,，、\n]/).map(x=>x.trim()).filter(x=>x && (admin || !restricted.has(x)));
-    if(title && list.length) out.push({title:title.slice(0,80),description:briefDescription(get('intro')),commands:list,order:Number(get('order'))||0});
+    if(title && list.length) out.push({title:title.slice(0,80),description:String(get('intro') || '').trim() || '暂无介绍',commands:list,order:Number(get('order'))||0});
   }
   return out.sort((a,b)=>a.order-b.order || a.title.localeCompare(b.title,'zh-CN'));
 }
