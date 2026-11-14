@@ -30,5 +30,20 @@
     "public": true,
     "admin": false,
     "disable": false
+  },
+  "plugins/必应积分任务.py": {
+    "id": "必应积分任务",
+    "name": "必应积分任务",
+    "title": "必应积分任务",
+    "type": "python",
+    "path": "plugins/必应积分任务.py",
+    "version": "v1.4.1-yh1",
+    "desc": "必应积分每日集、搜索、精选活动、查询和领取，配置与记录保存在羽化面板。",
+    "rule": "^必应(运行|查询)$",
+    "author": "muzixing666",
+    "class": "工具类",
+    "public": true,
+    "admin": true,
+    "disable": false
   }
 }
