@@ -61,5 +61,3 @@ class Tests(unittest.TestCase):
    cookie=m.qr_login(sender)
   self.assertIn('SESSDATA=test',cookie);self.assertIn('bili_jct=csrf',cookie)
 unittest.main(verbosity=2)
-
-
