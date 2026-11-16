@@ -1,12 +1,12 @@
 // [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/menu.svg]
 // [title: 简洁功能菜单]
 // [language: javascript]
-// [rule: ^菜单$]
+// [rule: ^菜单([ ]*([1-9][0-9]*|退出|q))?$|^[1-9][0-9]*$|^q$]
 // [platform: qq,qb,wx,gw,sb,wb,tg,tb,qx,xy,ip,web,wxmp]
 // [public: true]
 // [admin: false]
 // [disable: false]
-// [version: 2.5.0]
+// [version: 2.6.0]
 // [author: muzixing666]
 // [description: 发送菜单查看项目；在插件配置中直接编辑自动获取的项目并新增自定义项目。]
 'use strict';
@@ -97,8 +97,6 @@ function visibleRows(rows, meta, platform, admin, settings={}) {
   return output.sort((a,b)=>{const ai=order.indexOf(a.originalTitle),bi=order.indexOf(b.originalTitle); if(ai!==bi) return (ai<0?Infinity:ai)-(bi<0?Infinity:bi); return a.title.localeCompare(b.title,'zh-CN');});
 }
 async function showMenu(sender, plugins, settings={}) {
-  const chat=String(await sender.getChatID() || '').trim();
-  while(true) {
     const lines=[String(settings.title || '📋 功能菜单').slice(0,100)];
     for(let i=0;i<plugins.length;i++) lines.push((i+1)+'. '+plugins[i].title);
     lines.push('\n'+String(settings.footer || '回复编号查看介绍和指令；q 退出。').slice(0,160));
@@ -108,31 +106,48 @@ async function showMenu(sender, plugins, settings={}) {
       part+=(part?'\n':'')+line;
     }
     if(part) await sender.reply(part);
-    const input=String(await sender.input(60000,0,!!chat && chat!=='0') || '').trim().toLowerCase();
-    if(!input) {await sender.reply('菜单已超时退出。'); return;}
-    if(['q','取消','退出'].includes(input)) {await sender.reply('已退出菜单。'); return;}
-    const n=/^[1-9][0-9]*$/.test(input)?Number(input):0;
-    if(n>=1 && n<=plugins.length) {
-      const selected=plugins[n-1];
-      await sender.reply('【'+selected.title+'】\n'+selected.description+'\n\n指令：\n'+selected.commands.join('\n')+'\n\n发送对应指令即可使用；发送“菜单”返回菜单。');
-      return;
-    }
-    await sender.reply('请输入菜单编号，或发送 q 退出。');
-  }
+}
+async function showItem(sender, selected) {
+  await sender.reply('【'+selected.title+'】\n'+selected.description+'\n\n指令：\n'+selected.commands.join('\n')+'\n\n发送对应指令即可使用；发送“菜单”返回菜单。');
+}
+async function sessionKey(sender) {
+  const platform=String(await sender.getImtype() || ''), user=String(await sender.getUserID() || ''), rawChat=String(await sender.getChatID() || '');
+  if(!platform || !user) throw new Error('无法识别消息来源');
+  const chat=rawChat==='0'?'':rawChat;
+  return crypto.createHash('sha256').update(JSON.stringify([platform,chat,user])).digest('hex');
+}
+async function readSession(key) {
+  try {
+    const s=JSON.parse(String(await middleware.bucketGet('simple_menu_sessions',key) || '{}'));
+    return Number(s.expires)>Date.now() && Array.isArray(s.items) ? s : null;
+  } catch (_) {return null;}
+}
+const CACHE_FILE='/data/simple-menu-cache.json', CACHE_TTL=5*60*1000;
+function readRowsCache() {
+  try {const c=JSON.parse(fs.readFileSync(CACHE_FILE,'utf8'));return Array.isArray(c.rows)?c:null;} catch (_) {return null;}
+}
+function saveRowsCache(rows,base) {
+  const safe=rows.map(p=>({id:p.id,title:p.title,rule:p.rule,desc:p.desc,status:p.status,disable:p.disable,admin_only:p.admin_only,public:p.public}));
+  try {const tmp=CACHE_FILE+'.'+process.pid+'.tmp';fs.writeFileSync(tmp,JSON.stringify({time:Date.now(),base,rows:safe}),{mode:0o600});fs.renameSync(tmp,CACHE_FILE);}catch (_) {}
 }
 async function fetchRows(base) {
   const u=new URL(base);if(!['http:','https:'].includes(u.protocol)) throw new Error('面板地址无效');
+  const candidate=readRowsCache(), cached=candidate && candidate.base===base?candidate:null;
+  if(cached && Date.now()-Number(cached.time)<CACHE_TTL) return cached.rows;
   const rows=[];let current=1,total=0;
+  try {
   do {
     const url=base+'/api/plugins/list.json?current='+current+'&pageSize=500&activeKey=installed';
-    const response=await fetch(url,{signal:AbortSignal.timeout(8000)});
+    const response=await fetch(url,{signal:AbortSignal.timeout(cached?2000:8000)});
     if(!response.ok) throw new Error('插件列表不可用');
     const payload=await response.json(),data=payload?.data;
     if(!Array.isArray(data?.data)) throw new Error('插件列表格式异常');
     rows.push(...data.data);total=Number(data.total)||0;current++;
     if(!data.data.length) break;
   } while(rows.length<total && current<=10);
+  saveRowsCache(rows,base);
   return rows;
+  } catch (error) {if(cached) return cached.rows;throw error;}
 }
 function fieldKey(item) {return 'item_'+crypto.createHash('sha256').update(item.sourceId).digest('hex').slice(0,16);}
 function valueOr(values,key,fallback) {return Object.prototype.hasOwnProperty.call(values || {},key) ? values[key] : fallback;}
@@ -211,11 +226,25 @@ async function prepareConfig(registerOnly=false) {
 async function main() {
   const sender=new middleware.Sender(middleware.getSenderID());
   try {
+    const message=String(await sender.getMessage() || '').trim(), key=await sessionKey(sender);
+    const direct=/^菜单[ ]*([1-9][0-9]*|退出|q)$/i.exec(message);
+    const plain=/^([1-9][0-9]*|q)$/i.exec(message);
+    if(direct || plain) {
+      const session=await readSession(key);
+      if(!session) {if(typeof sender.setContinue==='function') await sender.setContinue();return;}
+      const choice=String((direct || plain)[1]).toLowerCase();
+      if(choice==='q' || choice==='退出') {await middleware.bucketDel('simple_menu_sessions',key);await sender.reply('已退出菜单。');return;}
+      const index=Number(choice)-1;
+      if(index<0 || index>=session.items.length) {await sender.reply('请输入菜单编号，或发送 q 退出。');return;}
+      await middleware.bucketDel('simple_menu_sessions',key);
+      await showItem(sender,session.items[index]);return;
+    }
     const platform=String(await sender.getImtype() || '').toLowerCase(),admin=!!(await sender.isAdmin());
     const {rows,meta,schema,values,count}=await prepareConfig(false);
     const plugins=renderedItems(rows,meta,platform,admin,values,schema,count);
     if(!plugins.length) {await sender.reply('暂无可展示的插件指令。');return;}
     const defaults=defaultValues(schema),settings={title:valueOr(values,'menu_title',defaults.menu_title),footer:valueOr(values,'menu_footer',defaults.menu_footer)};
+    if(!await middleware.bucketSet('simple_menu_sessions',key,JSON.stringify({expires:Date.now()+60000,items:plugins}))) throw new Error('菜单会话保存失败');
     await showMenu(sender,plugins,settings);
   } catch (_) {await sender.reply('暂时无法读取插件列表或配置，请稍后再试。');}
 }
