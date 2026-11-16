@@ -37,14 +37,15 @@
     "title": "必应积分任务",
     "type": "python",
     "path": "plugins/必应积分任务.py",
-    "version": "v2.1.0-yh",
+    "version": "v2.1.1-yh",
     "desc": "完成必应搜索、每日集和精选活动可获得 Microsoft Rewards 积分，可兑换所在地区提供的礼品卡、捐赠等；积分和奖励以微软页面为准。邀请链接：https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae。Cookie 获取：电脑 Edge 或 Chrome 登录 https://cn.bing.com/ 并打开积分面板，按 F12 选择网络并刷新，点击 cn.bing.com 网页请求，在标头的请求标头中复制 Cookie 完整内容；私聊机器人发送必应登录后按提示发送 Cookie。Cookie 是登录凭证，请勿发到群聊。",
     "rule": "^必应(登录|Cookie登录|账号登录|查询|积分|运行|删除)$",
     "author": "muzixing666",
     "class": "工具类",
     "public": true,
     "admin": false,
-    "disable": false
+    "disable": false,
+    "icon": "https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/bing-rewards.png"
   },
   "plugins/哔哩哔哩任务.py": {
     "id": "哔哩哔哩任务",
@@ -52,13 +53,14 @@
     "title": "哔哩哔哩任务",
     "type": "python",
     "path": "plugins/哔哩哔哩任务.py",
-    "version": "v1.0.0",
+    "version": "v1.0.1",
     "desc": "扫码或 Cookie 登录、查询 B 站账户，尝试每日观看分享、直播和漫画签到、大会员权益与大积分签到；投币和银瓜子兑换默认关闭。",
     "rule": "^(哔哩|B站)(登录|扫码登录|Cookie登录|查询|任务|运行|删除)$",
     "author": "muzixing666",
     "class": "工具类",
     "public": true,
     "admin": false,
-    "disable": false
+    "disable": false,
+    "icon": "https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/bilibili-tasks.png"
   }
 }
