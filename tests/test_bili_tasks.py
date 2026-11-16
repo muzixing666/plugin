@@ -47,6 +47,31 @@ class Tests(unittest.TestCase):
   qr.assert_not_called();self.assertFalse(saved);self.assertTrue(any('私聊' in x for x in sent))
  def test_zero_flags(self):
   self.assertFalse(m.flag({'watch':0},'watch'));self.assertEqual(m.number({'reserve':0},'reserve',10,100),0)
+ def test_vip_status_supports_current_nav_fields(self):
+  self.assertEqual(m.vip_status({'vip':{'status':1,'type':1}}),1)
+  self.assertEqual(m.vip_status({'vip':{'vipStatus':0}}),0)
+  self.assertEqual(m.vip_status({'vipStatus':1}),1)
+  self.assertIsNone(m.vip_status({}))
+ def test_active_vip_enables_member_tasks(self):
+  self.calls=[];info={**self.info,'vip':{'status':1,'type':1}}
+  with patch.object(m,'call',side_effect=self.api):m.run_tasks(self.session,info,{'live':'0','manga':'0','watch':'0','share':'0'})
+  self.assertTrue(any(x[1].endswith('/score/task/sign2') for x in self.calls))
+  self.assertEqual(sum(x[1].endswith('/vip/privilege/receive') for x in self.calls),2)
+ def test_signed_vip_is_verified_and_not_signed_twice(self):
+  self.calls=[];info={**self.info,'vip':{'status':1}}
+  def api(session,method,url,**kwargs):
+   if url.endswith('/three_days_sign'):
+    self.calls.append((method,url,kwargs));return {'code':0,'data':{'three_day_sign':{'signed':True,'score':5},'big_point':{'point':42}}}
+   return self.api(session,method,url,**kwargs)
+  with patch.object(m,'call',side_effect=api):r=m.run_tasks(self.session,info,{'live':'0','manga':'0','watch':'0','share':'0','vip':'0'})
+  self.assertFalse(any(x[1].endswith('/score/task/sign2') for x in self.calls));self.assertTrue(any('今日已完成' in line and '42' in line for line in r['lines']))
+ def test_manga_already_signed_is_not_a_failure(self):
+  self.calls=[]
+  def api(session,method,url,**kwargs):
+   if url.endswith('/ClockIn'):return {'code':1,'msg':'不能重复签到~'}
+   return self.api(session,method,url,**kwargs)
+  with patch.object(m,'call',side_effect=api):r=m.run_tasks(self.session,self.info,{'live':'0','watch':'0','share':'0','vip':'0'})
+  self.assertIn('漫画签到：今日已签到',r['lines'])
  def test_experience_network_error_retried(self):
   results=[{'code':-999},{'code':0,'data':{'watch':True}}]
   with patch.object(m,'call',side_effect=results) as fn,patch.object(m.time,'sleep'):

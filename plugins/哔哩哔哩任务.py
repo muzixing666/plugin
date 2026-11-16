@@ -8,7 +8,7 @@
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.0.2]
+# [version: 1.0.3]
 # [description: 扫码或 Cookie 绑定 B 站，查询账号与每日任务，尝试观看、分享、直播和漫画签到及大会员权益。投币数量由管理员设置，默认不投币。]
 # [param: {"required":false,"key":"bili_tasks.coin_count","bool":false,"name":"每日投币目标","placeholder":"0","desc":"0 为不投币，最多 5；按当天已获得投币经验补足。"}]
 # [param: {"required":false,"key":"bili_tasks.reserve","bool":false,"name":"保留硬币","placeholder":"10","desc":"投币后至少保留的硬币数，默认 10。"}]
@@ -93,12 +93,18 @@ def reward_info(session, errors=None):
         errors.append(detail(r))
     return r.get('data') if r.get('code') == 0 and isinstance(r.get('data'), dict) else None
 
+def vip_status(info):
+    vip = info.get('vip') or {}
+    if not isinstance(vip, dict): vip = {}
+    status = vip.get('status', vip.get('vipStatus', info.get('vipStatus')))
+    return status if status in (0, 1) else None
+
 def format_info(info, reward=None):
     level = info.get('level_info') or {}
-    vip = info.get('vip') or {}
+    vip = vip_status(info)
     lines = ['账号：%s' % (info.get('uname') or '未知'), 'UID：%s' % info.get('mid'),
              '等级：%s，经验：%s / %s' % (level.get('current_level', '?'), level.get('current_exp', '?'), level.get('next_exp', '?')),
-             '硬币：%s' % info.get('money', '?'), '大会员：%s' % ('有效' if vip.get('vipStatus') == 1 else '未显示有效')]
+             '硬币：%s' % info.get('money', '?'), '大会员：%s' % ('有效' if vip == 1 else '无效' if vip == 0 else '状态未知')]
     if reward is None: lines.append('今日任务状态暂不可用')
     else:
         lines.append('今日任务：观看%s，分享%s，投币经验%s' % ('已完成' if reward.get('watch') else '未确认', '已完成' if reward.get('share') else '未确认', reward.get('coins', '?')))
@@ -116,6 +122,13 @@ def number(config, key, default, maximum):
 
 def config_from_panel():
     return {k: middleware.bucketGet('bili_tasks', k) for k in ('coin_count', 'reserve', 'watch', 'share', 'live', 'manga', 'vip', 'vip_sign', 'silver')}
+
+def vip_sign_info(session, csrf):
+    now = int(time.time() * 1000)
+    params = {'csrf': csrf, 'build': '8451100', 'disable_rcmd': 0, 'mobi_app': 'android', 'platform': 'android', 'statistics': '{"appId":1,"platform":3,"version":"8.45.1","abtest":""}', 't': now, 'ts': now // 1000}
+    r = call(session, 'GET', API + '/x/vip/vip_center/sign_in/three_days_sign', params=params, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+    data = r.get('data')
+    return data if r.get('code') == 0 and isinstance(data, dict) else None
 
 def run_tasks(session, info, config):
     logs = []
@@ -189,13 +202,24 @@ def run_tasks(session, info, config):
             logs.append('银瓜子兑换：' + detail(r))
     if flag(config, 'manga'):
         r = call(session, 'POST', 'https://manga.bilibili.com/twirp/activity.v1.Activity/ClockIn', params={'platform': 'android'}, headers={'Origin': 'https://manga.bilibili.com', 'Referer': 'https://manga.bilibili.com/'})
-        logs.append('漫画签到：' + detail(r))
-    vip = info.get('vip') or {}
-    if flag(config, 'vip_sign') and vip.get('vipStatus') == 1:
-        now = int(time.time() * 1000)
-        r = call(session, 'POST', API + '/pgc/activity/score/task/sign2', params={'mobi_app': 'android', 'platform': 'android', 'csrf': csrf}, json={'device': 'phone', 't': now, 'ts': now // 1000}, headers={'Referer': 'https://big.bilibili.com/mobile/index'})
-        logs.append('大会员大积分签到：' + detail(r))
-    if flag(config, 'vip') and vip.get('vipStatus') == 1:
+        message = str(r.get('message') or r.get('msg') or '')
+        logs.append('漫画签到：今日已签到' if r.get('code') == 1 and '不能重复签到' in message else '漫画签到：' + detail(r))
+    vip = vip_status(info)
+    if flag(config, 'vip_sign') and vip == 1:
+        sign_info = vip_sign_info(session, csrf)
+        sign_state = (sign_info or {}).get('three_day_sign') or {}
+        r = None
+        if not sign_state.get('signed'):
+            now = int(time.time() * 1000)
+            r = call(session, 'POST', API + '/pgc/activity/score/task/sign2', params={'mobi_app': 'android', 'platform': 'android', 'csrf': csrf}, json={'device': 'phone', 't': now, 'ts': now // 1000}, headers={'Referer': 'https://big.bilibili.com/mobile/index'})
+            sign_info = vip_sign_info(session, csrf)
+            sign_state = (sign_info or {}).get('three_day_sign') or {}
+        if sign_state.get('signed'):
+            points = (sign_info.get('big_point') or {}).get('point', '未知')
+            logs.append('大会员大积分签到：今日已完成，签到积分%s，当前积分%s' % (sign_state.get('score', '未知'), points))
+        else:
+            logs.append('大会员大积分签到：' + (detail(r) if r is not None else '状态未确认'))
+    if flag(config, 'vip') and vip == 1:
         for item, name in [(1, 'B币券'), (2, '会员福利')]:
             r = call(session, 'POST', API + '/x/vip/privilege/receive', params={'type': item, 'csrf': csrf})
             logs.append(name + '：' + detail(r))
