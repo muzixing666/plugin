@@ -8,7 +8,7 @@
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.0.1]
+# [version: 1.0.2]
 # [description: 扫码或 Cookie 绑定 B 站，查询账号与每日任务，尝试观看、分享、直播和漫画签到及大会员权益。投币数量由管理员设置，默认不投币。]
 # [param: {"required":false,"key":"bili_tasks.coin_count","bool":false,"name":"每日投币目标","placeholder":"0","desc":"0 为不投币，最多 5；按当天已获得投币经验补足。"}]
 # [param: {"required":false,"key":"bili_tasks.reserve","bool":false,"name":"保留硬币","placeholder":"10","desc":"投币后至少保留的硬币数，默认 10。"}]
@@ -82,8 +82,15 @@ def user_info(session):
         return None
     return d
 
-def reward_info(session):
+def reward_info(session, errors=None):
     r = call(session, 'GET', API + '/x/member/web/exp/reward')
+    # A temporary network/response failure should not make the entire daily
+    # experience workflow skip immediately. Do not retry business errors.
+    if r.get('code') == -999:
+        time.sleep(1)
+        r = call(session, 'GET', API + '/x/member/web/exp/reward')
+    if errors is not None and r.get('code') != 0:
+        errors.append(detail(r))
     return r.get('data') if r.get('code') == 0 and isinstance(r.get('data'), dict) else None
 
 def format_info(info, reward=None):
@@ -114,8 +121,9 @@ def run_tasks(session, info, config):
     logs = []
     csrf = session.cookies.get('bili_jct', domain='.bilibili.com') or ''
     if not csrf: return {'ok': False, 'lines': ['Cookie 缺少 bili_jct，请重新登录。']}
-    before = reward_info(session)
-    if before is None: logs.append('每日经验状态读取失败，观看、分享和投币已跳过。')
+    errors = []
+    before = reward_info(session, errors)
+    if before is None: logs.append('每日经验状态读取失败%s，观看、分享和投币已跳过。' % ('：' + errors[0] if errors else ''))
     else:
         target = number(config, 'coin_count', 0, 5)
         need = (flag(config, 'watch') and not before.get('watch')) or (flag(config, 'share') and not before.get('share')) or target > 0

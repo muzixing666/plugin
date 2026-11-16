@@ -53,7 +53,7 @@
     "title": "哔哩哔哩任务",
     "type": "python",
     "path": "plugins/哔哩哔哩任务.py",
-    "version": "v1.0.1",
+    "version": "v1.0.2",
     "desc": "扫码或 Cookie 登录、查询 B 站账户，尝试每日观看分享、直播和漫画签到、大会员权益与大积分签到；投币和银瓜子兑换默认关闭。",
     "rule": "^(哔哩|B站)(登录|扫码登录|Cookie登录|查询|任务|运行|删除)$",
     "author": "muzixing666",

@@ -47,6 +47,13 @@ class Tests(unittest.TestCase):
   qr.assert_not_called();self.assertFalse(saved);self.assertTrue(any('私聊' in x for x in sent))
  def test_zero_flags(self):
   self.assertFalse(m.flag({'watch':0},'watch'));self.assertEqual(m.number({'reserve':0},'reserve',10,100),0)
+ def test_experience_network_error_retried(self):
+  results=[{'code':-999},{'code':0,'data':{'watch':True}}]
+  with patch.object(m,'call',side_effect=results) as fn,patch.object(m.time,'sleep'):
+   self.assertTrue(m.reward_info(self.session)['watch']);self.assertEqual(fn.call_count,2)
+ def test_experience_business_error_not_retried(self):
+  with patch.object(m,'call',return_value={'code':-403,'message':'blocked'}) as fn:
+   errors=[];self.assertIsNone(m.reward_info(self.session,errors));self.assertEqual(fn.call_count,1);self.assertIn('-403',errors[0])
  def test_bad_login_stops(self):
   with patch.object(m,'call',return_value={'code':-101,'data':{'isLogin':False}}):self.assertIsNone(m.user_info(self.session))
  def test_qrcode_url_allowed_and_redirection_cookies(self):
