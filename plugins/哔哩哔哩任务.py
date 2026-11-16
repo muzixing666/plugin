@@ -8,8 +8,8 @@
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.0.3]
-# [description: 扫码或 Cookie 绑定 B 站，查询账号与每日任务，尝试观看、分享、直播和漫画签到及大会员权益。投币数量由管理员设置，默认不投币。]
+# [version: 1.1.0]
+# [description: 扫码或 Cookie 绑定 B 站，查询账号、钱包、会员积分及任务进度，执行日常和会员免费任务。投币及银瓜子兑换默认关闭。]
 # [param: {"required":false,"key":"bili_tasks.coin_count","bool":false,"name":"每日投币目标","placeholder":"0","desc":"0 为不投币，最多 5；按当天已获得投币经验补足。"}]
 # [param: {"required":false,"key":"bili_tasks.reserve","bool":false,"name":"保留硬币","placeholder":"10","desc":"投币后至少保留的硬币数，默认 10。"}]
 # [param: {"required":false,"key":"bili_tasks.watch","bool":false,"name":"观看任务","placeholder":"1","desc":"1 开启，0 关闭。"}]
@@ -18,11 +18,14 @@
 # [param: {"required":false,"key":"bili_tasks.manga","bool":false,"name":"漫画签到","placeholder":"1","desc":"1 开启，0 关闭，接口不可用时记录原因。"}]
 # [param: {"required":false,"key":"bili_tasks.vip","bool":false,"name":"大会员权益","placeholder":"1","desc":"1 开启，0 关闭；仅对符合条件的账号尝试领取。"}]
 # [param: {"required":false,"key":"bili_tasks.vip_sign","bool":false,"name":"大会员大积分签到","placeholder":"1","desc":"1 开启，0 关闭；仅会员尝试，结果以接口返回为准。"}]
+# [param: {"required":false,"key":"bili_tasks.vip_extra","bool":false,"name":"大会员免费积分任务","placeholder":"1","desc":"默认开启，执行福利和免费浏览任务，不购买商品。"}]
+# [param: {"required":false,"key":"bili_tasks.vip_experience","bool":false,"name":"会员经验加速包","placeholder":"1","desc":"默认开启；仅状态允许领取时尝试领取。"}]
 # [param: {"required":false,"key":"bili_tasks.silver","bool":false,"name":"银瓜子兑换硬币","placeholder":"0","desc":"默认关闭；1 开启，消耗银瓜子兑换硬币。"}]
 
 import contextlib
 import fcntl
 import hashlib
+import html
 import json
 import os
 import random
@@ -30,6 +33,7 @@ import re
 import subprocess
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
@@ -102,12 +106,21 @@ def vip_status(info):
 def format_info(info, reward=None):
     level = info.get('level_info') or {}
     vip = vip_status(info)
+    current_exp, next_exp = level.get('current_exp'), level.get('next_exp')
+    remainder = '，距下一级%s' % max(0, next_exp - current_exp) if isinstance(current_exp, (int, float)) and isinstance(next_exp, (int, float)) else ''
     lines = ['账号：%s' % (info.get('uname') or '未知'), 'UID：%s' % info.get('mid'),
-             '等级：%s，经验：%s / %s' % (level.get('current_level', '?'), level.get('current_exp', '?'), level.get('next_exp', '?')),
+             '等级：%s，经验：%s / %s%s' % (level.get('current_level', '?'), level.get('current_exp', '?'), level.get('next_exp', '?'), remainder),
              '硬币：%s' % info.get('money', '?'), '大会员：%s' % ('有效' if vip == 1 else '无效' if vip == 0 else '状态未知')]
+    due = info.get('vipDueDate') or ((info.get('vip') or {}).get('due_date') if isinstance(info.get('vip'), dict) else 0)
+    if vip == 1 and isinstance(due, (int, float)) and due > 0:
+        try: lines[-1] += '，到期：' + datetime.fromtimestamp(due / 1000 if due > 10**12 else due, timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M')
+        except (OverflowError, OSError, ValueError): pass
+    wallet = info.get('wallet') or {}
+    if isinstance(wallet, dict) and ('bcoin_balance' in wallet or 'coupon_balance' in wallet):
+        lines.append('B币：%s，B币券：%s' % (wallet.get('bcoin_balance', '?'), wallet.get('coupon_balance', '?')))
     if reward is None: lines.append('今日任务状态暂不可用')
     else:
-        lines.append('今日任务：观看%s，分享%s，投币经验%s' % ('已完成' if reward.get('watch') else '未确认', '已完成' if reward.get('share') else '未确认', reward.get('coins', '?')))
+        lines.append('今日任务：登录%s，观看%s，分享%s，投币经验%s' % ('已完成' if reward.get('login') else '未确认', '已完成' if reward.get('watch') else '未确认', '已完成' if reward.get('share') else '未确认', reward.get('coins', '?')))
     return '\n'.join(lines)
 
 def flag(config, key, default=True):
@@ -121,7 +134,79 @@ def number(config, key, default, maximum):
     except ValueError: return default
 
 def config_from_panel():
-    return {k: middleware.bucketGet('bili_tasks', k) for k in ('coin_count', 'reserve', 'watch', 'share', 'live', 'manga', 'vip', 'vip_sign', 'silver')}
+    return {k: middleware.bucketGet('bili_tasks', k) for k in ('coin_count', 'reserve', 'watch', 'share', 'live', 'manga', 'vip', 'vip_sign', 'vip_extra', 'vip_experience', 'silver')}
+
+def vip_app_params(session, csrf):
+    now = int(time.time() * 1000)
+    return {'csrf': csrf, 'buvid': session.cookies.get('buvid3', domain='.bilibili.com') or '', 'build': '8451100', 'disable_rcmd': 0, 'mobi_app': 'android', 'platform': 'android', 'statistics': '{"appId":1,"platform":3,"version":"8.45.1","abtest":""}', 't': now, 'ts': now // 1000, 'brand': 'Samsung', 'channel': 'bili', 'containerName': 'AbstractWebActivity', 'device': 'phone'}
+
+def vip_tasks_info(session, csrf):
+    r = call(session, 'GET', API + '/x/vip_point/task/combine', params=vip_app_params(session, csrf), headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+    data = r.get('data')
+    return data if r.get('code') == 0 and isinstance(data, dict) else None
+
+def task_items(data):
+    task_info = data.get('task_info') if isinstance(data, dict) else None
+    groups = task_info.get('modules') if isinstance(task_info, dict) else []
+    return [item for group in (groups or []) if isinstance(group, dict) for item in (group.get('common_task_item') or []) if isinstance(item, dict)]
+
+def vip_free_tasks(session, csrf):
+    data = vip_tasks_info(session, csrf)
+    if data is None: return ['会员免费任务：列表暂不可用']
+    entries = {item.get('task_code'): item for item in task_items(data)}
+    allowed = [('bonus', '福利大积分'), ('privilege', '浏览会员权益'), ('dress-view', '浏览装扮商城'), ('vipmallview', '浏览会员购'), ('animatetab', '浏览追番频道'), ('filmtab', '浏览影视频道')]
+    logs = []
+    for code, name in allowed:
+        item = entries.get(code)
+        if not item: logs.append(name + '：当前任务列表无此项');continue
+        if item.get('state') == 3: logs.append(name + '：已完成');continue
+        if item.get('state') == 0:
+            received = call(session, 'POST', API + '/pgc/activity/score/task/receive/v2', data={'taskCode': code}, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+            refreshed = vip_tasks_info(session, csrf)
+            entries = {x.get('task_code'): x for x in task_items(refreshed)}
+            item = entries.get(code)
+            if not item or item.get('state') not in (1, 3):
+                logs.append(name + '：领取后状态未确认（%s）' % detail(received));continue
+            if item.get('state') == 3: logs.append(name + '：已完成');continue
+        if item.get('state') != 1: logs.append(name + '：当前状态未确认');continue
+        if code in ('bonus', 'privilege'):
+            r = call(session, 'POST', API + '/pgc/activity/score/task/complete', json={'taskCode': code}, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+        elif code == 'dress-view':
+            r = call(session, 'POST', API + '/pgc/activity/score/task/complete/v2', data={'taskCode': code}, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+        elif code == 'vipmallview':
+            r = call(session, 'POST', 'https://show.bilibili.com/api/activity/fire/common/event/dispatch', json={'csrf': csrf, 'eventId': 'hevent_oy4b7h3epeb'})
+        else:
+            time.sleep(10)
+            app = vip_app_params(session, csrf)
+            params = {k: app[k] for k in ('build', 'disable_rcmd', 'mobi_app', 'platform', 'statistics', 't', 'ts')}
+            params.update({'position': 'jp_channel' if code == 'animatetab' else 'tv_channel', 'c_locale': 'zh_CN', 's_locale': 'zh_CN', 'channel': 'bili'})
+            r = call(session, 'POST', API + '/pgc/activity/deliver/task/complete', data=params, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+        # Even an HTTP or JSON error can occur after the server credited the task.
+        # Always re-read the official state; never retry a write blindly.
+        refreshed = vip_tasks_info(session, csrf)
+        if refreshed is not None: entries = {x.get('task_code'): x for x in task_items(refreshed)}
+        current = entries.get(code) if refreshed is not None else None
+        if current and current.get('state') == 3: logs.append(name + '：已完成')
+        else: logs.append(name + '：状态待确认（%s）' % detail(r))
+        if r.get('code') in (-403, -412): logs.append('会员任务遇到限制，停止后续尝试');break
+    final = vip_tasks_info(session, csrf)
+    if final is not None:
+        point_info = final.get('point_info') or {}
+        if isinstance(point_info, dict): logs.append('当前大积分：%s' % point_info.get('point', '未知'))
+    return logs
+
+def vip_experience_task(session, csrf):
+    def state():
+        r = call(session, 'GET', API + '/x/vip/privilege/my', headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+        data = r.get('data') or {}; items = data.get('list') if isinstance(data, dict) else []
+        item = next((x for x in (items or []) if isinstance(x, dict) and x.get('type') == 9), None)
+        return item.get('state') if item else None
+    before = state()
+    if before == 1: return '会员经验加速包：已领取'
+    if before == 2: return '会员经验加速包：观看条件未完成'
+    if before != 0: return '会员经验加速包：状态暂不可用'
+    r = call(session, 'POST', API + '/x/vip/experience/add', data={'csrf': csrf}, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
+    return '会员经验加速包：已领取' if state() == 1 else '会员经验加速包：状态待确认（%s）' % detail(r)
 
 def vip_sign_info(session, csrf):
     now = int(time.time() * 1000)
@@ -129,6 +214,47 @@ def vip_sign_info(session, csrf):
     r = call(session, 'GET', API + '/x/vip/vip_center/sign_in/three_days_sign', params=params, headers={'Referer': 'https://big.bilibili.com/mobile/bigPoint/task'})
     data = r.get('data')
     return data if r.get('code') == 0 and isinstance(data, dict) else None
+
+def detailed_info(session, info, reward, last_result=None):
+    lines = [format_info(info, reward)]
+    relation = call(session, 'GET', API + '/x/relation/stat', params={'vmid': info['mid']})
+    data = relation.get('data')
+    if relation.get('code') == 0 and isinstance(data, dict):
+        lines.append('关注：%s，粉丝：%s' % (data.get('following', '?'), data.get('follower', '?')))
+    else: lines.append('关注和粉丝：暂不可用')
+    wallet = call(session, 'GET', 'https://api.live.bilibili.com/xlive/revenue/v1/wallet/myWallet', params={'need_bp': 1, 'need_metal': 1, 'platform': 'pc'})
+    data = wallet.get('data')
+    if wallet.get('code') == 0 and isinstance(data, dict):
+        lines.append('直播银瓜子：%s，金瓜子：%s' % (data.get('silver', '?'), data.get('gold', '?')))
+    else: lines.append('直播钱包：暂不可用')
+    csrf = session.cookies.get('bili_jct', domain='.bilibili.com') or ''
+    if vip_status(info) == 1 and csrf:
+        signed = vip_sign_info(session, csrf)
+        if signed is not None:
+            sign = signed.get('three_day_sign') or {}; point = signed.get('big_point') or {}
+            if isinstance(sign, dict) and isinstance(point, dict):
+                lines.append('大积分：%s；今日签到%s（签到积分%s，周期%s/%s天）' % (point.get('point', '?'), '已完成' if sign.get('signed') else '未完成', sign.get('score', '?'), sign.get('count', '?'), sign.get('duration', '?')))
+        else: lines.append('会员签到状态：暂不可用')
+        combined = vip_tasks_info(session, csrf)
+        if combined is not None:
+            lines.append('会员任务状态：')
+            for item in task_items(combined):
+                name = str(item.get('title') or '未命名任务').strip()[:40]
+                state = {0:'待领取', 1:'进行中', 3:'已完成'}.get(item.get('state'), '状态%s' % item.get('state', '?'))
+                subtitle = html.unescape(re.sub(r'<[^>]+>', '', str(item.get('subtitle') or ''))).strip()
+                subtitle = re.sub(r'\s+', ' ', subtitle)[:65]
+                lines.append('· %s：%s%s' % (name, state, '（' + subtitle + '）' if subtitle else ''))
+        else: lines.append('会员任务列表：暂不可用')
+    if isinstance(last_result, dict):
+        logs = (last_result.get('result') or {}).get('lines') or []
+        if isinstance(logs, list) and logs:
+            lines.append('最近运行（%s）：' % (last_result.get('time') or '时间未知'))
+            for item in logs[:20]:
+                text = str(item)[:140]
+                if text.startswith('漫画签到：未完成（1：不能重复签到'):
+                    text = '漫画签到：今日已签到（历史返回不能重复签到）'
+                lines.append('· ' + text)
+    return '\n'.join(lines)
 
 def run_tasks(session, info, config):
     logs = []
@@ -219,6 +345,10 @@ def run_tasks(session, info, config):
             logs.append('大会员大积分签到：今日已完成，签到积分%s，当前积分%s' % (sign_state.get('score', '未知'), points))
         else:
             logs.append('大会员大积分签到：' + (detail(r) if r is not None else '状态未确认'))
+    if flag(config, 'vip_extra') and vip == 1:
+        logs.extend(vip_free_tasks(session, csrf))
+    if flag(config, 'vip_experience') and vip == 1:
+        logs.append(vip_experience_task(session, csrf))
     if flag(config, 'vip') and vip == 1:
         for item, name in [(1, 'B币券'), (2, '会员福利')]:
             r = call(session, 'POST', API + '/x/vip/privilege/receive', params={'type': item, 'csrf': csrf})
@@ -327,7 +457,10 @@ def main():
         if not record.get('cookie'): sender.reply('请先私聊发送“B站登录”或“B站Cookie登录”。');return
         if message.endswith('查询'):
             session = make_session(record['cookie']);info = user_info(session)
-            sender.reply(format_info(info, reward_info(session)) if info else '无法验证 Cookie，请重新登录或检查网络。');return
+            if not info: sender.reply('无法验证 Cookie，请重新登录或检查网络。');return
+            try: last = json.loads(str(middleware.bucketGet(RESULTS, owner) or '{}'))
+            except (ValueError, TypeError): last = {}
+            sender.reply(detailed_info(session, info, reward_info(session), last));return
         sender.reply('开始执行 B 站任务，请稍候。')
         result = execute(owner, record);sender.reply('\n'.join(result['lines']));return
     seen = set()

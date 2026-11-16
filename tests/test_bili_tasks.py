@@ -72,6 +72,32 @@ class Tests(unittest.TestCase):
    return self.api(session,method,url,**kwargs)
   with patch.object(m,'call',side_effect=api):r=m.run_tasks(self.session,self.info,{'live':'0','watch':'0','share':'0','vip':'0'})
   self.assertIn('漫画签到：今日已签到',r['lines'])
+ def test_free_tasks_verify_success_after_response_error(self):
+  def data(state):return {'point_info':{'point':105},'task_info':{'modules':[{'common_task_item':[{'task_code':'bonus','state':state},{'task_code':'vipmallbuy','state':1}]}]}}
+  with patch.object(m,'vip_tasks_info',side_effect=[data(1),data(3),data(3)]),patch.object(m,'call',return_value={'code':-999}) as post:
+   logs=m.vip_free_tasks(self.session,'csrf')
+  self.assertTrue(any('福利大积分：已完成' in line for line in logs));self.assertEqual(post.call_count,1)
+  self.assertEqual(post.call_args.kwargs['json']['taskCode'],'bonus')
+ def test_completed_tasks_are_never_replayed(self):
+  d={'point_info':{'point':195},'task_info':{'modules':[{'common_task_item':[{'task_code':'bonus','state':3},{'task_code':'vipmallbuy','state':1}]}]}}
+  with patch.object(m,'vip_tasks_info',return_value=d),patch.object(m,'call') as post:
+   logs=m.vip_free_tasks(self.session,'csrf')
+  post.assert_not_called();self.assertIn('福利大积分：已完成',logs)
+ def test_vip_experience_requires_confirmed_eligibility(self):
+  with patch.object(m,'call',return_value={'code':0,'data':{'list':[{'type':9,'state':1}]}}) as fn:
+   self.assertIn('已领取',m.vip_experience_task(self.session,'csrf'));self.assertEqual(fn.call_count,1)
+ def test_detailed_query_displays_available_information(self):
+  info={**self.info,'uname':'test','vip':{'status':1},'level_info':{'current_level':4,'current_exp':8000,'next_exp':10800},'wallet':{'bcoin_balance':0,'coupon_balance':2}}
+  sign={'three_day_sign':{'signed':True,'score':5,'count':1,'duration':7},'big_point':{'point':195}}
+  tasks={'task_info':{'modules':[{'common_task_item':[{'title':'福利任务','state':3,'subtitle':'<span>+100</span>'}]}]}}
+  def api(session,method,url,**kwargs):
+   self.assertEqual(method,'GET')
+   if url.endswith('/stat'):return {'code':0,'data':{'following':10,'follower':2}}
+   return {'code':0,'data':{'silver':462,'gold':0}}
+  with patch.object(m,'call',side_effect=api),patch.object(m,'vip_sign_info',return_value=sign),patch.object(m,'vip_tasks_info',return_value=tasks):
+   result=m.detailed_info(self.session,info,{'login':True,'watch':True,'share':True,'coins':0})
+  for value in ('距下一级2800','关注：10','银瓜子：462','大积分：195','福利任务：已完成'):
+   self.assertIn(value,result)
  def test_experience_network_error_retried(self):
   results=[{'code':-999},{'code':0,'data':{'watch':True}}]
   with patch.object(m,'call',side_effect=results) as fn,patch.object(m.time,'sleep'):
