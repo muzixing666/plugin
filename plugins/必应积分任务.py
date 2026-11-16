@@ -1,1468 +1,1167 @@
 # [title: 必应积分任务]
 # [language: python]
-# [rule: ^必应(登录|Cookie登录|账号登录|查询|积分|运行|删除)$]
+# [rule: ^必应(登录|账号登录|查询|积分|运行|删除)$]
 # [cron: 20 8 * * *]
 # [platform: qq,qb,wx,gw,sb,wb,tg,tb,qx,xy,ip]
 # [admin: false]
 # [public: true]
 # [disable: false]
 # [author: muzixing666]
-# [version: 1.8.0-yh]
-# [description: 自动完成积分任务，可兑换所在地区提供的礼品卡等。 教程：打开这个网址先注册 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae。Cookie 获取：电脑 Edge 或 Chrome 登录 https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae并打开积分面板，按 F12 选择网络并刷新，点击 cn.bing.com 网页请求，在标头的请求标头中复制 Cookie 完整内容；私聊机器人发送必应登录后按提示发送 Cookie。或者通过手机可以获取cookie的浏览器登录获取 ]
-# [param: {"required":false,"key":"bing_rewards.cookie","bool":false,"name":"必应 Cookie","placeholder":"必应登录 Cookie，多账号用换行分隔","desc":"保存在羽化面板，勿发送到聊天群或上传仓库。"}]
-# [param: {"required":false,"key":"bing_rewards.search_times","bool":false,"name":"每日搜索目标","placeholder":"15","desc":"最多20次；按微软页面进度补足。"}]
-# [param: {"required":false,"key":"bing_rewards.delay","bool":false,"name":"请求间隔","placeholder":"3-8","desc":"单位秒，例如 3-8。"}]
-# [param: {"required":false,"key":"bing_rewards.wait_seconds","bool":false,"name":"积分到账等待","placeholder":"60","desc":"执行完成后等待积分到账的秒数。"}]
-# [param: {"required":false,"key":"bing_rewards.offers","bool":false,"name":"执行每日精选","placeholder":"1 开启，0 关闭","desc":"默认开启。"}]
-# [param: {"required":false,"key":"bing_rewards.checkin","bool":false,"name":"尝试签到","placeholder":"1 开启，0 关闭","desc":"网页签到不一定有效。"}]
-# [param: {"required":false,"key":"bing_rewards.claim","bool":false,"name":"领取待领取积分","placeholder":"1 开启，0 关闭","desc":"默认开启。"}]
-# [param: {"required":false,"key":"bing_rewards.proxy_mode","bool":false,"name":"代理模式","placeholder":"direct / fixed / pool / api","desc":"direct 直连；fixed 固定代理；pool 代理池；api 代理接口。留空默认直连。"}]
-# [param: {"required":false,"key":"bing_rewards.proxy_fixed","bool":false,"name":"固定代理","placeholder":"http://地址:端口","desc":"仅 fixed 模式使用；支持用户名密码。"}]
-# [param: {"required":false,"key":"bing_rewards.proxy_pool","bool":false,"name":"代理池","placeholder":"http://地址1:端口, http://地址2:端口","desc":"仅 pool 模式使用；多个代理用逗号或换行分隔。按账号稳定选择。"}]
-# [param: {"required":false,"key":"bing_rewards.proxy_api","bool":false,"name":"代理 API 地址","placeholder":"https://代理商接口地址","desc":"仅 api 模式使用；接口返回 IP:端口 或包含代理地址的 JSON。每次执行获取一次。"}]
+# [version: 2.0.0-yh]
+# [description: 必应搜索与积分任务。注册及邀请：https://rewards.bing.com/welcome?rh=5aIZctyKXxw&ref=rafsrchae 。积分可用于兑换所在地区提供的奖励，具体以微软页面为准。私聊发送必应登录，按照提示绑定账号。]
+# [param: {"required":false,"key":"bing_rewards.concurrency","bool":false,"name":"账号并发数","placeholder":"2","desc":"同时运行账号数，默认2，最多4。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_mode","bool":false,"name":"代理模式","placeholder":"direct / fixed / pool / api","desc":"管理员配置，默认直连。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_fixed","bool":false,"name":"固定代理","placeholder":"http://地址:端口","desc":"fixed 模式使用。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_pool","bool":false,"name":"代理池","placeholder":"地址1,地址2","desc":"pool 模式使用，按账号稳定选择。"}]
+# [param: {"required":false,"key":"bing_rewards.proxy_api","bool":false,"name":"代理 API 地址","placeholder":"https://代理商接口地址","desc":"api 模式使用。"}]
 
-
-
+import concurrent.futures
+import contextlib
+import base64
+import fcntl
+import gzip
+import hashlib
 import json
 import os
 import re
-import time
-import random
+import shutil
+import signal
+import queue
+import threading
+import subprocess
 import sys
-_vendor = "/data/plugins/python_packages/bing_rewards_vendor"
-if os.path.isdir(_vendor): sys.path.insert(0, _vendor)
+import time
+import uuid
+from pathlib import Path
+from urllib.parse import urlsplit, unquote
+
+sys.path.insert(0, '/data/plugins/python_packages/bing_rewards_vendor')
 import requests
-from urllib.parse import unquote_plus
-
-# ============== 配置 ============
-BASE = "https://cn.bing.com"
-REWARDS_PANEL = "https://cn.bing.com/rewards/panelflyout?channel=bingflyout&partnerId=BingRewards"
-REWARDS_API = "https://rewards.bing.com/api/getuserinfo?type=1"
-# v1.4.0：earn 页面（含全部 offer 列表 + 积分 + 连续打卡），dashboard 用于解析连续打卡
-EARN_PANEL = "https://rewards.bing.com/earn"
-DASHBOARD = "https://rewards.bing.com/dashboard"
-
-PC_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-         "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 Edg/128.0.0.0")
-MOBILE_UA = ("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
-             "(KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36")
-
-# 正常人类搜索词库（分类随机，避免一言 API 的奇怪句子）
-NORMAL_SEARCH_TERMS = [
-    # ========= 生活日常 =======
-    "今天天气", "天气预报", "附近美食推荐", "家常菜做法", "早餐吃什么",
-    "晚餐食谱", "减肥餐", "快递查询", "火车票", "机票价格",
-    "附近酒店", "超市营业时间", "药店", "医院挂号", "公交路线",
-    "地铁线路", "打车优惠", "外卖优惠券", "家政服务", "搬家公司",
-    "水电缴费", "燃气费查询", "物业费", "停车位", "洗车",
-    "汽车保养", "违章查询", "驾照换证", "身份证办理", "社保查询",
-    "公积金", "个税计算", "银行利率", "理财产品", "保险推荐",
-    # ========= 科技数码 =======
-    "最新手机推荐", "笔记本电脑排行", "科技新闻", "AI工具", "Python教程",
-    "软件下载", "电脑技巧", "WiFi设置", "路由器推荐", "固态硬盘",
-    "机械键盘", "鼠标推荐", "显示器推荐", "显卡排行", "CPU对比",
-    "主板推荐", "电源推荐", "机箱推荐", "散热器", "耳机推荐",
-    "音箱推荐", "智能手表", "手环推荐", "平板推荐", "电子书阅读器",
-    "投影仪", "扫地机器人", "空气净化器", "加湿器", "电动牙刷",
-    # ========= 娱乐休闲 =======
-    "电影推荐", "电视剧排行", "音乐排行榜", "游戏攻略", "小说推荐",
-    "旅游攻略", "景点推荐", "拍照技巧", "综艺推荐", "演唱会门票",
-    "话剧演出", "展览推荐", "博物馆", "动物园", "游乐园",
-    "滑雪场", "温泉", "民宿推荐", "露营装备", "钓鱼技巧",
-    "宠物饲养", "花卉养殖", "手工DIY", "绘画教程", "书法入门",
-    "吉他教程", "钢琴入门", "舞蹈教学", "健身计划", "瑜伽入门",
-    # ========= 学习提升 =======
-    "英语学习", "考研资料", "公务员考试", "在线课程", "学习方法",
-    "知识问答", "读书笔记", "考证", "雅思", "托福",
-    "四六级", "教师资格证", "会计证", "心理咨询师", "健康管理师",
-    "编程入门", "数据分析", "设计教程", "办公软件技巧", "PPT模板",
-    "Excel技巧", "Word教程", "简历模板", "面试技巧", "职场沟通",
-    # ========= 购物消费 =======
-    "淘宝热销", "京东比价", "优惠券", "打折", "性价比推荐",
-    "商品评价", "品牌对比", "拼多多", "双十一", "618",
-    "年货节", "双十二", "会员日", "秒杀", "团购",
-    "海淘", "代购", "奢侈品", "二手交易", "闲鱼",
-    "转转", "得物", "小红书种草", "什么值得买", "慢慢买",
-    # ========= 热点资讯 =======
-    "今日新闻", "热点事件", "热搜榜", "微博热搜", "知乎热榜",
-    "抖音热点", "B站热门", "头条新闻", "澎湃新闻", "36氪",
-    "虎嗅", "知乎日报", "少数派", "差评", "酷安",
-    "IT之家", "快科技", "太平洋电脑网", "中关村在线", "汽车之家",
-]
-
-used_terms = set()
-
-
-# ============== 工具 ============
-def log(msg):
-    print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
-
-
-def log_title(msg):
-    print(f"\n{msg}", flush=True)
-
-
-def parse_cookie(s):
-    c = {}
-    for part in s.split(";"):
-        part = part.strip()
-        if "=" in part:
-            k, v = part.split("=", 1)
-            c[k.strip()] = v.strip()
-    return c
-
-
-def get_search_term():
-    """生成正常人类搜索词，随机词库 + 随机修饰，去重"""
-    for _ in range(30):
-        base = random.choice(NORMAL_SEARCH_TERMS)
-        modifier = random.choice(["", "", "", "", "2026", "最新", "推荐", "攻略",
-                                   "大全", "哪个好", "怎么样", "2026年", "排行"])
-        term = f"{base} {modifier}".strip() if modifier else base
-        if term not in used_terms and 0 < len(term) <= 30:
-            return term
-    return f"{random.choice(NORMAL_SEARCH_TERMS)} {int(time.time()) % 1000}"
-
-
-def make_session(cookie_str):
-    session = requests.Session()
-    session.trust_env = False
-    proxy = os.getenv("BING_PROXY", "").strip()
-    if proxy: session.proxies.update({"http": proxy, "https": proxy})
-    for key, value in parse_cookie(cookie_str).items():
-        session.cookies.set(key, value, domain=".bing.com", path="/")
-    return session
-
-
-def get_headers(ua, referer=None):
-    h = {
-        "User-Agent": ua,
-        "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
-                   "image/avif,image/webp,*/*;q=0.8"),
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    }
-    if referer:
-        h["Referer"] = referer
-    return h
-
-
-def get_username(session):
-    """从必应首页获取账号名称"""
-    try:
-        r = session.get("https://cn.bing.com/", headers=get_headers(PC_UA), timeout=10)
-        m = re.search(r'id="id_n"[^>]*>([^<]+)<', r.text)
-        if m:
-            return m.group(1).strip()
-    except Exception:
-        pass
-    return None
-
-
-# ============== 核心功能 ============
-def do_search(session, term, ua=PC_UA):
-    """执行一次搜索（必须带 form=QBRE 才会计入每日搜索积分）"""
-    try:
-        r = session.get(f"{BASE}/search", params={"q": term, "form": "QBRE"},
-                        headers=get_headers(ua, f"{BASE}/"), timeout=15)
-        return r.status_code == 200
-    except Exception as e:
-        log(f"  搜索异常: {e}")
-        return False
-
-
-def extract_daily_set_activities(html):
-    """
-    提取每日集活动（v1.4.1 重写）。
-    2026-11 新页面结构：dailySetItems 数组里每个元素自带
-      destination / isCompleted / offerId / points / hash
-    老页面是 "destinationUrl"，两种都兼容。
-    """
-    activities = []
-    if not html:
-        return activities
-    text = html.replace('\\"', '"')
-    seen = set()
-
-    # 新结构：按 offerId 定位，向前回溯取同一对象里的字段
-    for m in re.finditer(r'"offerId"\s*:\s*"(Gamification_DailySet[^"]*)"', text):
-        oid = m.group(1)
-        if oid in seen:
-            continue
-        start = text.rfind('{"date"', max(0, m.start() - 2000), m.start())
-        block = text[start if start > 0 else max(0, m.start() - 1500):m.end() + 300]
-        dest = re.search(r'"destination"\s*:\s*"(https?://[^"]+)"', block)
-        if not dest:
-            continue
-        done = re.search(r'"isCompleted"\s*:\s*(true|false)', block)
-        pts = re.search(r'"points"\s*:\s*([0-9]+)', block)
-        title = re.search(r'"title"\s*:\s*"([^"]*)"', block)
-        hs = re.search(r'"hash"\s*:\s*"([0-9a-f]{40,64})"', block)
-        seen.add(oid)
-        activities.append({
-            "hash": hs.group(1) if hs else "",
-            "url": dest.group(1).replace("\\u0026", "&").replace("&amp;", "&").replace('\\"', '"'),
-            "complete": bool(done and done.group(1) == "true"),
-            "offer_id": oid,
-            "points": int(pts.group(1)) if pts else 0,
-            "title": title.group(1) if title else oid[-8:],
-        })
-    if activities:
-        return activities
-
-    # 老结构兜底：destinationUrl + rnoreward 关键字
-    urls = re.findall(r'"destinationUrl"\s*:\s*"(https?://[^"]*bing\.com/search\?[^"]*)"', html)
-    for url in urls:
-        url = url.replace("\\u0026", "&").replace("&amp;", "&").replace("\\u0022", "%22")
-        if any(k in url for k in ["rnoreward", "DailySet", "ML2X9E", "ML2X9F", "tgrew4", "ML2G76"]):
-            if url not in seen:
-                seen.add(url)
-                activities.append({"url": url, "complete": False, "offer_id": "",
-                                   "points": 0, "title": ""})
-    return activities
-
-
-def get_daily_set_status(html):
-    """获取每日集完成状态，如 '1/3'（兼容新旧两种页面）"""
-    text = (html or "").replace('\\"', '"')
-    # 新页面：dailyset 卡片的 streak 模型（先定位 type=dailyset，避免抓到 edge/bingapp 的进度）
-    m = re.search(r'"type"\s*:\s*"dailyset"[^}]*?"activitiesCompleted"\s*:\s*(\d+)[^}]*?"activitiesTotal"\s*:\s*(\d+)', text, re.S)
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    m = re.search(r'partner_dset_titleArg0"\s*:\s*"(\d+)"', html)
-    m2 = re.search(r'partner_dset_titleArg1"\s*:\s*"(\d+)"', html)
-    if m and m2:
-        return int(m.group(1)), int(m2.group(1))
-    # 备用：从文本匹配
-    m = re.search(r'每日集\((\d+)/(\d+)\s*活动\)', html)
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    return None, None
-
-
-def get_daily_search_status(html):
-    """获取每日搜索积分状态，返回 (已赚, 上限)
-
-    v1.4.0：兼容微软调整每日上限、以及 earn/dashboard 页面的新字段写法。
-    """
-    if not html:
-        return None, None
-    # 1. 面板里用 pointProgress/pointProgressMax 表示进度，每日搜索上限是 15
-    for m in re.finditer(r'"pointProgressMax"\s*:\s*15\s*,\s*"pointProgress"\s*:\s*(\d+)', html):
-        return int(m.group(1)), 15
-    for m in re.finditer(r'"pointProgress"\s*:\s*(\d+)\s*,\s*"pointProgressMax"\s*:\s*15', html):
-        return int(m.group(1)), 15
-    # 2. earn/dashboard 页面的写法（2026-11-08 抓包）：
-    #    "pointsCounters":{"dailyOffer":7,"pc":{"max":15,"progress":15,"originalMax":15},...}
-    text = html.replace('\\"', '"')
-    m = re.search(r'"pc"\s*:\s*\{\s*"max"\s*:\s*(\d+)\s*,\s*"progress"\s*:\s*(\d+)', text)
-    if m:
-        return int(m.group(2)), int(m.group(1))
-    # 3. 泛化兜底：任意上限顺序颠倒的写法
-    for m in re.finditer(r'pointProgressMax\\?"\s*:\s*(\d+)\s*,\s*\\?"pointProgress\\?"\s*:\s*(\d+)', html):
-        mx, cur = int(m.group(1)), int(m.group(2))
-        if 0 < cur <= mx <= 60:
-            return cur, mx
-    return None, None
-
-
-def extract_ig_iid(html):
-    """从搜索页面 HTML 提取 IG 和 IID"""
-    ig = ""
-    iid = "SERP.5057"
-    m = re.search(r'IG["\s:=]+([A-Fa-f0-9]{32})', html)
-    if m:
-        ig = m.group(1)
-    m = re.search(r'IID["\s:=]+(SERP\.\d+)', html)
-    if m:
-        iid = m.group(1)
-    return ig, iid
-
-
-def extract_quiz_total(html):
-    """从Quiz页面提取总题数"""
-    for m in re.finditer(r'(\d+)\s*/\s*(\d+)', html):
-        cur, tot = int(m.group(1)), int(m.group(2))
-        if tot in (3, 5, 7, 10) and 1 <= cur <= tot:
-            return tot
-    return None
-
-
-def get_quiz_panel_status(html, quiz_url):
-    """从面板提取指定Quiz的完成状态，返回 (已完成布尔值, 总积分)"""
-    q_match = re.search(r'[?&]q=([^&]+)', quiz_url)
-    if not q_match:
-        return None, None
-    q_text = q_match.group(1)
-    for m in re.finditer(r'destinationUrl"\s*:\s*"([^"]*)"', html, re.I):
-        if q_text in m.group(1):
-            start = max(0, m.start() - 2000)
-            end = min(len(html), m.end() + 300)
-            block = html[start:end]
-            prog = re.search(r'"pointProgress"\s*:\s*(\d+)', block)
-            pmax = re.search(r'"pointProgressMax"\s*:\s*(\d+)', block)
-            if prog and pmax:
-                return int(prog.group(1)) >= int(pmax.group(1)), int(pmax.group(1))
-    return None, None
-
-
-def report_activity(session, activity_url, page_html, ig, iid):
-    """调用 reportActivity API 触发积分"""
-    from urllib.parse import urlparse, parse_qs, urlencode
-    parsed = urlparse(activity_url.replace("www.bing.com", "cn.bing.com"))
-    params = parse_qs(parsed.query)
-    report_params = {
-        "IG": ig,
-        "IID": iid,
-        "q": params.get("q", [""])[0],
-    }
-    for k in ["form", "FORM", "OCID", "PUBL", "CREA", "filters"]:
-        if k in params:
-            report_params[k] = params[k][0]
-    report_params["rnoreward"] = "1"
-    report_params["ajaxreq"] = "1"
-
-    report_url = "https://cn.bing.com/rewardsapp/reportActivity?" + urlencode(report_params)
-    try:
-        r = session.post(report_url, headers={
-            "User-Agent": PC_UA,
-            "Referer": activity_url.replace("www.bing.com", "cn.bing.com"),
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-        }, timeout=15)
-        return r.status_code == 200
-    except Exception:
-        return False
-
-
-# /earn 路由的 Next Router State Tree（与账号无关，路由结构固定）
-EARN_ROUTER_TREE = "%5B%22%22%2C%7B%22children%22%3A%5B%22(nav)%22%2C%7B%22children%22%3A%5B%22earn%22%2C%7B%22children%22%3A%5B%22__PAGE__%22%2C%7B%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C0%5D%7D%2Cnull%2Cnull%2C16%5D"
-
-
-def report_offer_v2(session, page_html, offer_hash, offer_id, referer=None):
-    """
-    v1.4.1：走 Rewards 新版 Server Action 上报活动完成。
-    真机抓包（2026-11-08）确认：
-      POST https://rewards.bing.com/earn?section=streaks
-      next-action: <REPORT_ACTION_ID>
-      体: ["<offer 的 hash>",11,{"offerid":"<offerId>","isPromotional":"$undefined","timezoneOffset":"-480"}]
-      回: 0:{...}\n1:true     ← 1:true 即成功
-    比旧的 cn.bing.com/rewardsapp/reportActivity 稳定得多。
-    """
-    url = "https://rewards.bing.com/earn?section=streaks"
-    body = json.dumps([offer_hash, 11, {
-        "offerid": offer_id,
-        "isPromotional": "$undefined",
-        "timezoneOffset": "-480",
-    }], ensure_ascii=False, separators=(",", ":"))
-    h = _action_headers(page_html, referer or url, REPORT_ACTION_ID)
-    h["next-router-state-tree"] = EARN_ROUTER_TREE
-    try:
-        r = session.post(url, headers=h, data=body, timeout=20)
-        if r.status_code >= 400:
-            return False
-        return "1:true" in (r.text or "")
-    except Exception:
-        return False
-
-
-def complete_daily_set(session, delay_min, delay_max):
-    """完成每日集活动（v1.4.1：改走 earn 页面 + 新版 Server Action 上报）"""
-    log_title("======== 每日集 ========")
-    html = get_earn_page(session)
-    if not html:
-        try:
-            r = session.get(REWARDS_PANEL, headers=get_headers(PC_UA), timeout=15)
-            html = r.text if r.status_code == 200 else ""
-        except Exception as e:
-            log(f"  面板访问异常: {e}")
-            return 0
-    if not html:
-        log("  面板访问失败")
-        return 0
-
-    done, total = get_daily_set_status(html)
-    if done is not None:
-        log(f" 当前进度: {done}/{total}")
-        if done >= total:
-            log(" ✅ 每日集已全部完成")
-            return total
-
-    activities = extract_daily_set_activities(html)
-    log(f"  提取到 {len(activities)} 个活动")
-    pending = [a for a in activities if not a["complete"]]
-    log(f"  未完成: {len(pending)} 个")
-
-    for i, act in enumerate(pending):
-        url = act["url"]
-        log(f"  活动[{i+1}]: {act['title'] or url[:50]} (+{act['points']}分)")
-        # 1. 先访问活动页（拿到 IG/IID，也让微软记录浏览行为）
-        page = ""
-        try:
-            r = session.get(url, headers=get_headers(PC_UA, "https://rewards.bing.com/earn"), timeout=20)
-            if r.status_code == 200:
-                page = r.text
-            else:
-                log(f"    页面 status={r.status_code}")
-        except Exception as e:
-            log(f"    页面异常: {e}")
-
-        # 2. 新版上报（hash + offerId）
-        ok = False
-        h = act.get("hash", "")
-        if h and act.get("offer_id"):
-            ok = report_offer_v2(session, html, h, act["offer_id"], "https://rewards.bing.com/earn?section=streaks")
-            log(f"    {'✅ 积分已触发' if ok else '❌ 新版上报失败'}")
-
-        # 3. 旧版兜底
-        if not ok and page:
-            ig, iid = extract_ig_iid(page)
-            if ig:
-                ok = report_activity(session, url, page, ig, iid)
-                log(f"    {'✅ 旧接口已触发' if ok else '❌ 旧接口失败'}")
-        time.sleep(random.randint(delay_min, delay_max))
-
-    # 复查
-    html2 = get_earn_page(session)
-    done2, total2 = get_daily_set_status(html2)
-    if done2 is not None:
-        log(f"  最终进度: {done2}/{total2}")
-        return done2
-    return done or 0
-
-
-def extract_quiz_from_html(html):
-    """从页面 HTML 提取 quiz 问题和选项，返回 (question, options, user_id)"""
-    # 提取选项：支持单引号和双引号属性
-    opt_pattern = (r'''class=["'][^"']*btq_opt[^"']*["'][\s\S]*?'''
-                   r'''href=["']([^"']+)["'][\s\S]*?'''
-                   r'''acf-button-standard__label["'][^>]*>([^<]+)</div>''')
-    options = []
-    for m in re.finditer(opt_pattern, html):
-        href = m.group(1).replace("&amp;", "&")
-        text = m.group(2).strip()
-        q_match = re.search(r'[?&]q=([^&]+)', href)
-        correct = unquote_plus(q_match[1]) if q_match else ""
-        options.append({"text": text, "href": href, "correct": correct})
-
-    if not options:
-        return None, None, ""
-
-    # 提取问题文本（btq_opts 之前的最后一段文本）
-    question = ""
-    q_match = re.search(r'([^<>]{10,200})</div>\s*</div>\s*<div class=["\']btq_opts', html)
-    if q_match:
-        question = q_match.group(1).strip()
-    if not question:
-        # 备用：找 btq_title 之后的文本
-        q_match = re.search(r'btq_title["\'][^>]*>([\s\S]{0,300})', html)
-        if q_match:
-            t = re.sub(r'<[^>]+>', '', q_match.group(1)).strip()
-            question = t[:100]
-
-    # 提取 UserId
-    uid_match = re.search(r'"UserId"\s*:\s*"([^"]+)"', html)
-    user_id = uid_match.group(1) if uid_match else ""
-
-    return question, options, user_id
-
-
-def complete_quiz(session, quiz_url, delay_min, delay_max):
-    """完成一个 Quiz 的所有题目（自动提取正确答案）"""
-    quiz_url = quiz_url.replace("www.bing.com", "cn.bing.com")
-    current_url = quiz_url
-    completed = 0
-
-    for round_num in range(10):  # 最多 10 题，防止死循环
-        try:
-            r = session.get(current_url, headers=get_headers(PC_UA), timeout=15)
-            if r.status_code != 200:
-                break
-
-            question, options, user_id = extract_quiz_from_html(r.text)
-            if not options:
-                # 只有第一次访问就没题目时，才提示已完成
-                if round_num == 0:
-                    log_title("======= 每日问答 =======")
-                    total_q = extract_quiz_total(r.text)
-                    if total_q:
-                        log(f" 当前进度: {total_q}/{total_q}")
-                    log(" ✅ 每日问答已全部完成")
-                return 0
-
-            # 有题目，第一次输出标题
-            if round_num == 0:
-                log_title("======= 每日问答 =======")
-
-            # 正确答案 = 所有选项的 q 参数（都一样）
-            correct_answer = options[0]["correct"]
-            # 找到显示文本匹配正确答案的选项
-            correct_opt = None
-            for opt in options:
-                if correct_answer in opt["text"]:
-                    correct_opt = opt
-                    break
-            if not correct_opt:
-                # 兜底：选最后一个
-                correct_opt = options[-1]
-
-            log(f"  {round_num+1}. {question[:45]}")
-            log(f"     正在查找正确答案→ {correct_opt['text']}")
-
-            # 1. POST quiz/record 记录答案
-            try:
-                record_body = {
-                    "PartnerId": "BingQAUX",
-                    "QuestionText": question,
-                    "OptionText": correct_opt["text"],
-                    "UserId": user_id,
-                }
-                session.post("https://www.bing.com/funapi/api/quiz/record?ajaxreq=1",
-                             json=record_body,
-                             headers={
-                                 "User-Agent": PC_UA,
-                                 "Content-Type": "application/json",
-                                 "Referer": current_url,
-                                 "X-Requested-With": "XMLHttpRequest",
-                             }, timeout=10)
-            except Exception as e:
-                log(f"    quiz/record 异常: {e}")
-
-            # 2. 提取 IG/IID，调用 reportActivity 触发积分
-            ig, iid = extract_ig_iid(r.text)
-            opt_full_url = correct_opt["href"]
-            if opt_full_url.startswith("/"):
-                opt_full_url = "https://cn.bing.com" + opt_full_url
-            report_activity(session, opt_full_url, r.text, ig, iid)
-
-            completed += 1
-
-            # 3. 访问正确选项链接，获取下一题
-            current_url = opt_full_url
-            time.sleep(random.randint(delay_min, delay_max))
-
-        except Exception as e:
-            log(f"  第{round_num+1}题异常: {e}")
-            break
-
-    if completed > 0:
-        log(f"  🎉 全部答完（共 {completed} 题）")
-    return completed
-
-
-def extract_quiz_urls(html):
-    """从 Rewards 面板提取所有 Quiz URL（排除每日集活动）"""
-    urls = []
-    for m in re.finditer(r'"destinationUrl"\s*:\s*"(https?://[^"]*bing\.com/search\?[^"]*)"', html, re.I):
-        url = m.group(1).replace("\\u0026", "&")
-        low = url.lower()
-        # 只取 quiz / quote 类型，排除每日集（含 DailySet）
-        if ("quiz" in low or "quote" in low) and "dailyset" not in low and "rnoreward" not in low:
-            if url not in urls:
-                urls.append(url)
-    return urls
-
-
-def check_points(session):
-    """查询积分（容错，rewards.bing.com 不通时从 cn.bing.com 面板提取）"""
-    # 方式1：rewards.bing.com API（国际版，国内服务器可能不通）
-    try:
-        r = session.get(REWARDS_API, timeout=8, headers={
-            "Accept": "application/json",
-            "Referer": "https://rewards.bing.com/",
-            "User-Agent": PC_UA,
-        })
-        if r.status_code == 200:
-            data = r.json()
-            pts = data.get("dashboard", {}).get("userStatus", {}).get("availablePoints")
-            if isinstance(pts, (int, float)) and not isinstance(pts, bool):
-                return pts
-    except Exception:
-        pass
-    # 方式2：从 cn.bing.com 面板 HTML 提取（国内服务器可通）
-    try:
-        r = session.get(REWARDS_PANEL, headers=get_headers(PC_UA), timeout=8)
-        if r.status_code == 200:
-            for pat in [r'"availablePoints"\s*:\s*(\d+)',
-                        r'"Balance"\s*:\s*(\d+)']:
-                m = re.search(pat, r.text)
-                if m:
-                    return int(m.group(1).replace(",", ""))
-    except Exception:
-        pass
-    return None
-
-# ============== 新增 v1.4.0：earn 页面（精选任务 / 签到 / 连续打卡） ==============
-DEFAULT_POINTS_RE = re.compile(r'"availablePoints"\s*:\s*"?([0-9]{1,6})')
-ESCAPED_Q = re.compile(r'\\\"')
-
-
-def _unescape_html(html):
-    """Rewards 页面里内嵌的 RSC 数据是双重转义的 JSON，统一还原成普通 JSON 文本
-
-    注意：只替换「反斜杠+引号」这种转义序列，别动 \\u0022（那是 URL 里的 %22，
-    一旦被还原会导致后面的正则处理出错）。
-    """
-    return html.replace('\\"', '"')
-
-
-def _offer_points(block):
-    """取 offer 积分；优先取 offerId 那一行的 points，避免被同级其它 offer 的积分串味"""
-    head = block[:block.find('"offerId"') if '"offerId"' in block else len(block)]
-    m = re.search(r'"points"\s*:\s*([0-9]{1,4})', head) or re.search(r'"points"\s*:\s*([0-9]{1,4})', block)
-    return int(m.group(1)) if m else 0
-
-
-def get_points_from_html(html):
-    """从 earn/dashboard 页面取当前可用积分（真机页面字段名是 balance）"""
-    if not html:
-        return None
-    text = _unescape_html(html)
-    for pat in (r'"balance"\s*:\s*([0-9]+)', r'"availablePoints"\s*:\s*"?([0-9]+)'):
-        m = re.search(pat, text)
-        if m:
-            return int(m.group(1))
-    return None
-
-
-def get_earn_page(session):
-    """抓 earn 页面（提供全部 offer 列表 + 积分 + 连续打卡数据）"""
-    try:
-        r = session.get(EARN_PANEL, headers=get_headers(PC_UA, DASHBOARD), timeout=20)
-        if r.status_code == 200:
-            return r.text
-    except Exception as e:
-        log(f"  earn 页面访问异常: {e}")
-    return ""
-
-
-def get_dashboard(session):
-    """抓 dashboard 页面（连续打卡卡片数据最全）"""
-    try:
-        r = session.get(DASHBOARD, headers=get_headers(PC_UA, EARN_PANEL), timeout=20)
-        if r.status_code == 200:
-            return r.text
-    except Exception as e:
-        log(f"  dashboard 访问异常: {e}")
-    return ""
-
-
-def _find_hash(block):
-    """从 offer 片段里取 hash（新版 Server Action 上报要用）"""
-    m = re.search(r'"hash"\s*:\s*"([0-9a-f]{40,64})"', block)
-    return m.group(1) if m else ""
-
-
-def extract_offers(html):
-    """
-    解析 earn 页 offer 列表。
-    真实结构（2026-11-08 抓包）：
-      {"destination":"...","imageUrl":"...","isCompleted":false,"name":"WW_..._BingOffer4",
-       "points":5,"priority":1,"title":"晚餐创意","offerId":"WW_..._BingOffer4",...}
-    注意字段顺序不固定，所以每个字段单独在片段里找，不依赖顺序。
-    """
-    offers = []
-    if not html:
-        return offers
-    text = _unescape_html(html)
-    seen = set()
-    for m in re.finditer(r'"offerId"\s*:\s*"([^"]+)', text):
-        oid = m.group(1)
-        if oid in seen:
-            continue
-        seen.add(oid)
-        start = text.rfind('{"', max(0, m.start() - 2500), m.start())
-        if start < 0:
-            start = max(0, m.start() - 2000)
-        block = text[start:m.end() + 200]
-
-        dest = re.search(r'"destination"\s*:\s*"(https?://[^"]+)"', block)
-        title = re.search(r'"title"\s*:\s*"([^"]*)"', block)
-        desc = re.search(r'"description"\s*:\s*"([^"]*)"', block)
-        oc = re.search(r'"isCompleted"\s*:\s*(true|false)', block)
-        lk = re.search(r'"isLocked"\s*:\s*(true|false)', block)
-        offers.append({
-            "id": oid,
-            "dest": dest.group(1) if dest else "",
-            "title": (title.group(1) if title else oid)[:24],
-            "desc": desc.group(1) if desc else "",
-            "points": _offer_points(block),
-            "completed": (oc.group(1) == "true") if oc else False,
-            "locked": (lk.group(1) == "true") if lk else False,
-            "hash": _find_hash(block),
-            "raw": block,
-        })
-    return offers
-
-
-def extract_streaks(html):
-    """解析 /dashboard 或 /earn 里的 streak 卡片（各产品连续打卡进度）"""
-    streaks = []
-    if not html:
-        return streaks
-    text = _unescape_html(html)
-    for m in re.finditer(r'"type"\s*:\s*"streak"\s*,\s*"model"\s*:\s*\{"streak"\s*:\s*\{', text):
-        block = text[m.end():m.end() + 1200]
-        ac = re.search(r'"activitiesCompleted"\s*:\s*([0-9]+)', block)
-        at = re.search(r'"activitiesTotal"\s*:\s*([0-9]+)', block)
-        part = re.search(r'"partner"\s*:\s*"([^"]+)"', block)
-        day = re.search(r'"currentDay"\s*:\s*([0-9]+)', block)
-        td = re.search(r'"totalDays"\s*:\s*([0-9]+)', block)
-        sys_ = {"partner": part.group(1) if part else "?", "done": 0, "total": 0,
-                "day": 0, "total_days": 0}
-        if ac:
-            sys_["done"] = int(ac.group(1))
-        if at:
-            sys_["total"] = int(at.group(1))
-        if day:
-            sys_["day"] = int(day.group(1))
-        if td:
-            sys_["total_days"] = int(td.group(1))
-        streaks.append(sys_)
-    m = re.search(r'"streakCounter"\s*:\s*([0-9]+)', text)
-    if m:
-        streaks.append({"partner": "dailystreak", "done": int(m.group(1)), "total": 0,
-                        "day": 0, "total_days": 0})
-    return streaks
-
-
-STREAK_LABELS = {
-    "bing": "必应搜索", "dailyset": "每日集", "edge": "Edge 浏览 30 分钟",
-    "bingapp": "必应App 签到", "dailystreak": "每日连续打卡总天数",
-    "msn": "MSN 文章", "outlook": "Outlook", "visualsearch": "视觉搜索",
-}
-
-
-def show_streaks(html):
-    """打印连续打卡进度"""
-    log_title("======= 连续打卡 =======")
-    shown = False
-    for s in extract_streaks(html):
-        part = s["partner"]
-        if part == "dailystreak":
-            log(f"  {STREAK_LABELS[part]}: {s['done']} 天")
-            shown = True
-            continue
-        if s["total"] <= 0:
-            continue
-        day_info = f" 第{s['day']}/{s['total_days']}天" if s["total_days"] else ""
-        flag = "✅" if s["done"] >= s["total"] else "·"
-        log(f"  {flag} {STREAK_LABELS.get(part, part)}: {s['done']}/{s['total']}{day_info}")
-        shown = True
-    if not shown:
-        log("  未获取到连续打卡数据")
-
-
-def _streak_of(html, partner):
-    for s in extract_streaks(html):
-        if s["partner"] == partner:
-            return s
-    return None
-
-
-def do_checkin(session):
-    """
-    每日签到尝试。
-    真机抓包（2026-11-08）：签到靠 POST /earn?section=streaks 这个 Next.js Server Action 触发，
-    签到结果体现在 streak 卡片的「签到: x/1」上。
-    Server Action 需要页面里现生成的 action id（next-action 头），否则服务端直接拒绝，
-    所以这里：先 GET 抓 action id → 带上它 POST → 复查 streak 卡片。
-    """
-    log_title("======= 每日签到 =======")
-    html = get_dashboard(session) or get_earn_page(session)
-    app = _streak_of(html, "bingapp")
-    if app and app["total"] > 0 and app["done"] >= app["total"]:
-        log(f" 当前进度: {app['done']}/{app['total']}")
-        log(" ✅ 每日签到已完成")
-        return True
-
-    # 1. 抓 Server Action id
-    action_id = None
-    try:
-        r = session.get("https://rewards.bing.com/earn?section=streaks",
-                        headers=get_headers(PC_UA), timeout=20)
-        m = re.search(r'"([0-9a-f]{40})"', r.text)
-        if m:
-            action_id = m.group(1)
-    except Exception:
-        pass
-
-    # 2. 提交签到
-    headers = get_headers(PC_UA, "https://rewards.bing.com/earn?section=streaks")
-    headers.update({
-        "Accept": "text/x-component",
-        "Content-Type": "text/plain;charset=UTF-8",
-        "Origin": "https://rewards.bing.com",
-        "X-Requested-With": "XMLHttpRequest",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-    })
-    if action_id:
-        headers["Next-Action"] = action_id
-    try:
-        r = session.post("https://rewards.bing.com/earn?section=streaks",
-                         headers=headers, data="[]", timeout=15)
-        log(f"  签到请求: HTTP {r.status_code}" + ("" if action_id else "（未取到 action id）"))
-    except Exception as e:
-        log(f"  签到请求异常: {e}")
-
-    # 3. 复查
-    time.sleep(2)
-    html2 = get_dashboard(session) or get_earn_page(session)
-    app2 = _streak_of(html2, "bingapp")
-    if app2:
-        log(f" 当前进度: {app2['done']}/{app2['total']}")
-        if app2["total"] > 0 and app2["done"] >= app2["total"]:
-            log(" ✅ 每日签到已完成")
-            return True
-    log(" ⚠️ 签到未生效（该签到需必应App端，网页接口通常无效）")
-    return False
-
-
-def complete_offers(session, earn_html, skip_ids, delay_min, delay_max, notes):
-    """
-    完成 earn 页的「每日精选任务」：
-    每日箴言 / 某某的图片 / 旅行策划 这类每天固定 5 分的小任务，
-    与每日集同机制（rnoreward=1 搜索页 + /rewardsapp/reportActivity）。
-    """
-    log_title("======= 每日精选任务 =======")
-    offers = extract_offers(earn_html)
-    if not offers:
-        log("  未解析到任务列表（earn 页面异常）")
-        notes.append("每日精选任务: 未解析到任务列表")
-        return 0
-
-    pending, done_cnt, locked_cnt = [], 0, 0
-    for o in offers:
-        if o["id"] in skip_ids or not re.search(r"bing\.com/search\?", o["dest"]):
-            continue          # 每日集 / Quiz 已由前面处理
-        if o["completed"]:
-            done_cnt += 1
-            continue
-        if o["locked"]:
-            locked_cnt += 1
-            continue
-        if o["points"] <= 0:
-            continue
-        pending.append(o)
-
-    log(f"  共 {len(offers)} 个任务，已完成 {done_cnt} 个，待做 {len(pending)} 个，锁定 {locked_cnt} 个")
-
-    ok_cnt = 0
-    for i, o in enumerate(pending):
-        url = o["dest"].replace("https://www.bing.com", "https://cn.bing.com")
-        try:
-            r = session.get(url, headers=get_headers(PC_UA, EARN_PANEL), timeout=15)
-            page = r.text if r.status_code == 200 else ""
-            ok = False
-            # v1.4.1：优先走新版 Server Action（hash + offerId）
-            if o.get("hash"):
-                ok = report_offer_v2(session, earn_html, o["hash"], o["id"],
-                                     "https://rewards.bing.com/earn?section=streaks")
-            # 旧接口兜底
-            if not ok and page:
-                ig, iid = extract_ig_iid(page)
-                if ig:
-                    ok = report_activity(session, url, page, ig, iid)
-            log(f"  任务[{i+1}/{len(pending)}] {o['title']} (+{o['points']}分): "
-                f"{'✅ 已触发' if ok else '❌ 触发失败'}")
-            if ok:
-                ok_cnt += 1
-                notes.append(f"精选任务「{o['title']}」已提交(+{o['points']})")
-        except Exception as e:
-            log(f"  任务[{i+1}/{len(pending)}] {o['title']} ❌ 异常: {e}")
-        if i < len(pending) - 1:
-            time.sleep(random.randint(delay_min, delay_max))
-    return ok_cnt
-
-
-SKIP_LABEL_KEYS = ("Edg", "Edge", "banner", "Sweeps", "RAF", "Duolingo", "Refer")
-
-
-# ============== v1.4.0：领取积分（待领取 → 可用） ==============
-# 领取按钮走 Next.js Server Action：POST /dashboard，头里带 Next-Action。
-# 2026-11-08 从线上 JS chunk 里挖出来的稳定 action id（函数名 reportClaimAllPoints）。
-CLAIM_ACTION_ID = "00491296f1d668ad46b65342c95cb9d72a62c1fa9d"
-# 每日集/精选任务点击上报（reportActivity），备用
-REPORT_ACTION_ID = "707e6eb15bdfdd5fba193f0a77e934f7018faf87ce"
-
-
-def get_claimable(html):
-    """解析「可领取」积分数（解析不到返回 None）
-
-    真机页面结构（2026-11-08 抓包）：
-      instrument.name = DashboardHeader_ClaimablePoints
-      data = {"points":582,"hasPointClaimEntryExpiringSoon":true}
-      没有待领取时 points 是 "$undefined"
-    """
-    if not html:
-        return None
-    text = _unescape_html(html)
-    m = re.search(r'DashboardHeader_ClaimablePoints.{0,300}?"points"\s*:\s*"?(\d+|\$undefined)', text, re.S)
-    if not m:
-        return None
-    v = m.group(1)
-    return 0 if v == "$undefined" else int(v)
-
-
-def _deployment_id(html):
-    """从页面里取部署版本号（Server Action 要带 x-deployment-id，版本不符会被拒）"""
-    m = re.search(r"dpl=(\d{8}-\d+)", html or "")
-    return m.group(1) if m else None
-
-
-def _action_headers(html, referer, action_id):
-    h = get_headers(PC_UA, referer)
-    h.update({
-        "Accept": "text/x-component",
-        "Content-Type": "text/plain;charset=UTF-8",
-        "Origin": "https://rewards.bing.com",
-        "Next-Action": action_id,
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-    })
-    dpl = _deployment_id(html)
-    if dpl:
-        h["x-deployment-id"] = dpl
-    return h
-
-
-def discover_action_id(session, page_html, func_name, max_chunks=40):
-    """
-    自动挖 Server Action id。
-    action id 是构建产物的一部分，微软每次发版都会换，所以这里从线上 JS 里现挖：
-      1. 页面里列出的 chunk 先扫一遍
-      2. 没找到就顺着 chunk 里的 chunk 映射表继续找（领取面板是懒加载的独立 chunk）
-    找到 createServerReference("<id>",...,"<func_name>") 就返回 id。
-    """
-    if not page_html:
-        return None
-    seen, todo, fetched = set(), [], 0
-    for m in re.finditer(r"/_next/static/chunks/[^\"'\s]+\.js", page_html):
-        if m.group(0) not in seen:
-            seen.add(m.group(0))
-            todo.append(m.group(0))
-
-    pat = re.compile(r'createServerReference\)\("([0-9a-f]{40,44})"[^)]*?"' + re.escape(func_name) + r'"')
-    checked = set()
-    while todo and fetched < max_chunks:
-        path = todo.pop(0)
-        if path in checked:
-            continue
-        checked.add(path)
-        try:
-            r = session.get("https://rewards.bing.com" + path, headers=get_headers(PC_UA), timeout=20)
-            if r.status_code != 200:
-                continue
-            fetched += 1
-            text = r.text or ""
-        except Exception:
-            continue
-        m = pat.search(text)
-        if m:
-            log(f"  已挖到 action id: {func_name} = {m.group(1)[:12]}...")
-            return m.group(1)
-        # 顺着 chunk 映射表继续找
-        for mm in re.finditer(r'static/chunks/([^"\'\s]+\.js)', text):
-            p2 = "/_next/static/chunks/" + mm.group(1)
-            if p2 not in seen:
-                seen.add(p2)
-                todo.append(p2)
-    return None
-
-
-def claim_points(session):
-    """
-    领取积分：把「可领取」里的积分转成可用积分。
-    流程：抓 dashboard → 解析可领取数 → POST Server Action → 复查归零。
-    没有待领取积分时直接跳过，不浪费请求。
-    """
-    log_title("======= 领取积分 =======")
-    html = get_dashboard(session)
-    if not html:
-        log("  无法获取 dashboard，跳过")
-        return None
-    before = get_claimable(html)
-    if before is None:
-        log("  未解析到「可领取」积分，跳过")
-        return None
-    if before <= 0:
-        log("  当前可领取: 0")
-        log(" ✅ 暂无待领取积分")
-        return 0
-
-    log(f"  当前可领取: {before} 分，开始领取...")
-    headers = _action_headers(html, DASHBOARD, CLAIM_ACTION_ID)
-    ok = False
-    try:
-        r = session.post(DASHBOARD, headers=headers, data="[]", timeout=20)
-        if r.status_code >= 400:
-            # action id 可能随版本失效 → 现挖一个再试
-            log("  内置 action id 失效，尝试从线上 JS 重新提取...")
-            aid = discover_action_id(session, html, "reportClaimAllPoints")
-            if aid:
-                r = session.post(DASHBOARD, headers=_action_headers(html, DASHBOARD, aid), data="[]", timeout=20)
-        body = r.text or ""
-        log(f"  领取请求: HTTP {r.status_code}")
-        if "NEXT_REDIRECT" in body and "login" in body:
-            log("  ⚠️ 登录态失效（被重定向到登录页），请更新 Cookie")
-            return None
-        if r.status_code in (200, 204):
-            ok = True
-    except Exception as e:
-        log(f"  领取请求异常: {e}")
-        return None
-
-    # 复查：可领取是否归零
-    time.sleep(2)
-    after = get_claimable(get_dashboard(session))
-    if after is not None and after < before:
-        log(f" ✅ 领取成功: {before} → {after}（+{before - after} 分）")
-        return before
-    if after == 0:
-        log(f" ✅ 领取成功: {before} → 0")
-        return before
-    if ok:
-        log(f" ⚠️ 已发送领取请求，但复查仍显示可领取 {after} 分")
-        log("   可能原因: 积分刚到账有延迟，稍后重跑本脚本即可")
-    return before
-
-
-def collect_pending(earn_html, search_progress, daily_set_done, quiz_pending, notes):
-    """汇总今日未完成的任务"""
-    items = []
-    s_done, s_max = search_progress
-    if s_done is not None and s_max and s_done < s_max:
-        items.append(f"每日搜索 仅 {s_done}/{s_max} 分")
-    if daily_set_done is False:
-        items.append("每日集 未全部完成")
-    for t in quiz_pending:
-        items.append(f"问答「{t}」未完成")
-    for o in extract_offers(earn_html):
-        # 每日集活动单独统计（进度由 daily_set_done 反映），这里不重复列出
-        if "Gamification_DailySet" in o["id"]:
-            continue
-        if o["completed"] or not re.search(r"bing\.com/search\?", o["dest"]):
-            continue
-        if any(k in o["dest"] for k in ("rewards.bing.com", "microsoft.com")):
-            continue
-        if o["locked"]:
-            items.append(f"{o['title']}（等级不够，已锁定）")
-        elif o["points"] > 0:
-            items.append(f"{o['title']}(+{o['points']})")
-    # 已提交的任务不再算「未完成」
-    for n in notes:
-        m = re.match(r"精选任务「(.+?)」已提交", n)
-        if m:
-            t = m.group(1)
-            items = [it for it in items if not it.startswith(t + "(")]
-    return items
-
-
-def show_pending(items):
-    """打印未完成任务汇总"""
-    if not items:
-        log_title("======= 今日任务汇总 =======")
-        log(" 🎉 能自动做的任务已全部完成")
-        return
-    log_title("======= 今日未完成 =======")
-    for it in items:
-        log(f"  · {it}")
-
-
-# ============== 主流程 ============
-def run_rewards():
-    print("必应积分助手，基于满天星 v1.4.1 适配羽化面板")
-    cookie_str = os.getenv("by", "").strip()
-    if not cookie_str:
-        log("❌ 未设置环境变量 by")
-        return
-
-    # 支持多账号，用换行或 # 分隔
-    cookies = [c.strip() for c in re.split(r'[\n#]', cookie_str) if c.strip()]
-    total_accounts = len(cookies)
-
-    delay_cfg = os.getenv("BING_DELAY", "3-8")
-    try:
-        d_min, d_max = map(int, delay_cfg.split("-"))
-        if d_min > d_max:
-            d_min, d_max = d_max, d_min
-    except Exception:
-        d_min, d_max = 3, 8
-
-    # 每日搜索次数（国内版每天最多 15 点 = 5 次搜索有积分，可通过环境变量调整）
-    try:
-        search_times = int(os.getenv("BING_SEARCH_TIMES", "15"))
-        search_times = max(1, min(search_times, 20))
-    except Exception:
-        search_times = 15
-
-    # 最终积分查询前等待秒数（等积分延迟到账）
-    try:
-        wait_sec = int(os.getenv("BING_WAIT_SECONDS", "60"))
-        wait_sec = max(0, min(wait_sec, 300))
-    except Exception:
-        wait_sec = 60
-
-    # v1.4.0 新增开关
-    do_offers = os.getenv("BING_OFFERS", "1").strip() not in ("0", "false", "False", "no")
-    do_checkin_flag = os.getenv("BING_CHECKIN", "1").strip() not in ("0", "false", "False", "no")
-    do_claim_flag = os.getenv("BING_CLAIM", "1").strip() not in ("0", "false", "False", "no")
-
-    for acc_idx, cookie in enumerate(cookies, 1):
-        session = make_session(cookie)
-        used_terms = set()
-        notes = []
-
-        # 账号名称和积分（第一行不用时间戳，第一个账号带总共X账号前缀）
-        username = get_username(session)
-        earn_html = get_earn_page(session)
-        pts = check_points(session)
-        if pts is None and earn_html:
-            pts = get_points_from_html(earn_html)
-        if acc_idx == 1:
-            line = f"总共{total_accounts}账号,第{acc_idx}个账号: {username}" if username else f"总共{total_accounts}账号,第{acc_idx}个账号:"
-        else:
-            line = f"第{acc_idx}个账号: {username}" if username else f"第{acc_idx}个账号:"
-        if pts is not None:
-            line += f"  💰 当前积分: {pts}"
-        else:
-            line += "  💰 积分查询失败"
-        print(line)
-
-        # 0. 每日签到 + 连续打卡（v1.4.0 新增，BING_CHECKIN=0 可关闭签到）
-        if do_checkin_flag:
-            do_checkin(session)
-        dash_html = get_dashboard(session)
-        if dash_html:
-            show_streaks(dash_html)
-        # 0.5 领取积分（v1.4.1 新增，BING_CLAIM=0 可关闭）
-        if do_claim_flag:
-            claim_points(session)
-
-        # 1. 每日搜索（先检查是否已搜满，已满则显示进度并跳过；未满则只补差额）
-        search_done = False
-        s_earned, s_limit = None, None
-        need_times = search_times
-        try:
-            r_panel = session.get(REWARDS_PANEL, headers=get_headers(PC_UA), timeout=15)
-            s_earned, s_limit = get_daily_search_status(r_panel.text)
-        except Exception:
-            r_panel = None
-        if s_earned is None and earn_html:
-            s_earned, s_limit = get_daily_search_status(earn_html)
-        if s_earned is not None and s_limit:
-            # 每点积分约需 1 次搜索（国内版上限 15 点），按未完成积分补搜索次数
-            remain_pts = max(0, s_limit - s_earned)
-            need_times = min(search_times, max(0, remain_pts))
-        if s_earned is not None and s_limit and s_earned >= s_limit:
-            search_done = True
-
-        if search_done:
-            log_title("======= 每日搜索 =======")
-            log(f" 当前进度: {s_earned}/{s_limit}")
-            log(" ✅ 每日搜索已全部完成")
-        else:
-            if s_earned is not None and s_limit:
-                log_title(f"===== 每日搜索（{s_earned}/{s_limit} 分，补 {need_times} 次） =====")
-            else:
-                log_title(f"===== 每日搜索（{need_times} 次） =====")
-            ok_n = 0
-            for i in range(need_times):
-                term = get_search_term()
-                used_terms.add(term)
-                ok = do_search(session, term)
-                ok_n += 1 if ok else 0
-                log(f"  搜索[{i+1}/{need_times}] '{term[:25]}': {'✅' if ok else '❌'}")
-                if i < need_times - 1:
-                    time.sleep(random.randint(d_min, d_max))
-            notes.append(f"每日搜索 补 {ok_n}/{need_times} 次")
-
-        # 2. 每日集活动
-        ds_done = complete_daily_set(session, d_min, d_max)
-
-        # 3. 问答 Quiz（自动答题，已完成则显示进度并跳过）
-        quiz_pending = []
-        try:
-            r = session.get(REWARDS_PANEL, headers=get_headers(PC_UA), timeout=15)
-            quiz_urls = extract_quiz_urls(r.text)
-            for qurl in quiz_urls:
-                done, _ = get_quiz_panel_status(r.text, qurl)
-                if done:
-                    log_title("======= 每日问答 =======")
-                    # 从Quiz页面提取总题数
-                    total_q = None
-                    try:
-                        rq = session.get(qurl.replace("www.bing.com", "cn.bing.com"),
-                                         headers=get_headers(PC_UA), timeout=10)
-                        total_q = extract_quiz_total(rq.text)
-                    except Exception:
-                        pass
-                    if total_q:
-                        log(f" 当前进度: {total_q}/{total_q}")
-                    log(" ✅ 每日问答已全部完成")
-                    continue
-                complete_quiz(session, qurl, d_min, d_max)
-                time.sleep(random.randint(d_min, d_max))
-        except Exception:
-            pass
-
-        # 4. 每日精选任务（每日箴言 / 图片搜索等，v1.4.0 新增）
-        skip_ids = set()
-        earn_html2 = get_earn_page(session)
-        if earn_html2:
-            earn_html = earn_html2
-        if do_offers:
-            # 每日集活动 ID 不再重复处理
-            for o in extract_offers(earn_html):
-                if re.search(r"rnoreward=1|Gamification_DailySet", o["raw"]) and "search?" in o["dest"]:
-                    skip_ids.add(o["id"])
-            complete_offers(session, earn_html, skip_ids, d_min, d_max, notes)
-
-        # 等积分延迟到账后再统计
-        if wait_sec > 0:
-            log(f"⏳ 等待 {wait_sec} 秒让积分到账...")
-            time.sleep(wait_sec)
-
-        # 7. 未完成任务汇总（v1.4.0 新增）：用等待后重新抓的页面，状态最准
-        earn_html3 = get_earn_page(session) or earn_html
-        sp = get_daily_search_status(earn_html3)
-        if sp[0] is None and s_earned is not None:
-            sp = (min(s_limit, s_earned + need_times) if s_limit else s_earned, s_limit)
-        pending = collect_pending(earn_html3, sp, None if ds_done else False, quiz_pending, notes)
-
-        # 最终积分（不带时间戳）
-        pts2 = check_points(session)
-        if pts2 is None:
-            pts2 = get_points_from_html(earn_html3)
-        show_pending(pending)
-        if pts is not None and pts2 is not None:
-            print(f"任务执行结束，积分: {pts} → {pts2} (+{pts2 - pts})")
-        elif pts2 is not None:
-            print(f"任务执行结束，当前积分: {pts2}")
-        else:
-            print("任务执行结束（积分查询不可用）")
-
-        # 账号之间加空行分隔
-        if acc_idx < total_accounts:
-            print()
-
-
-
-
-# === 脚本来自于 http://ql.xmox.cn 脚本库 ===
-
-
-
-
-def normalize_proxy(value):
-    from urllib.parse import urlsplit
+from autman import middleware
+
+ROOT = Path('/data/plugins/python_packages/bing_rewards_runtime')
+ENGINE = ROOT / 'microsoft_rewards.js'
+BUCKET = 'bing_rewards_accounts'
+RESULTS = 'bing_rewards_results'
+# 构建发布版时嵌入青龙脚本的适配版，避免依赖未固定版本的远程下载。
+ENGINE_DATA = (
+    'H4sIAAAAAAAC/+y9e1sbR7Iw/v95nvMdxsRvJNlIAgzEJiEswTjmBBtewMnmAMGDNMDEQqPVSL4s5nlwsrbxFWfjS+JLbCd27E1i'
+    'cBIntsGX73KWkcRf+Qq/qq6emZ6rhC/n7O99X589QdOX6u7q6uqq6urqNzYki3o+Oa5mk0p2v5TV0sq//1syKWXlaaVNMp4tVp4u'
+    'le8sGfPHWHIqr2XbpAZpa31Tg7QJ/+/f/w0yNsEf+NilQr6uTRSkAeWAnE/r0mBBzqbljJZVpMFUXs0VWLnV54uVxW//eHK5qaGp'
+    'Nd7YEG9q+uPJfHlxzjh9sfLge2Ph4drRM+Wni/+cO7J27dvSteerTy5Xlq6Vjnxr3DpjLJw0bv1ceXC7fPL30twRgFW6990fT04g'
+    'ZIL+aG710Q/GwpJx9a60GwaU+FSXymeXjG8/X310qnzlQens7crzc5Wbp8uX/0YjNG5fNE7+XDn+g3HyLvbhb5dLV3/659xnDJ5x'
+    'fXl1+ayx9NgeX5yPL06DkqJThUJOb0smJ9XCVHE8kdKmk0NTym6loO87lAyqFmPg124+Ll9ZxK7MHyt9c+6PJ6fXjp8pXbxvLH5T'
+    'Pnu/dOOR8fxz4+T1yudPAWGl3xYqd+aNr++Wv14xnl4ABPV1FgtT0urKrfKJ05WzD42Fi5C4uvJD5ebd8pWvShful84slk6doHTW'
+    'YGlpoXTp9urKinHyprF4ujR/DnJKD+DzLs302rfHqPh7anZSKp27Wn7wLeWU753gWGGQ4q/uH83cs2uV3y7CMNmXJMWlXEY+dCCv'
+    'Tk4V4DNqjd6aKcBW+fxdmB7CB80mkFBp/mHMAiIfVDVd4v+iO4eG+qXK0sPSz5/FrJEYiycq3x11t5/NTUtqVi/ImYzYEwbPKnJQ'
+    'zDJLp6by2rRanLaJ8ulz6Gjp4uPSrxeA1teu/X3t2ddAtXZjjQkJZ/3bb4zHvxvnlqA00ayx8NXa8QVp1+DYQPdHnQPbB8c6u7r6'
+    '9uweGoTBGws/GCvLQPGlazeNc6eNc2eouEm7ktQEYG88MZ4sQEu0tt4wlo6Vbxx5Y3X5dOmnm2s/nK4sHYGktb/f/uPJldLVHyqL'
+    'z2DtOXJhLR372g3AbgP+HdKK+TE5ldKK2cKflIPydC6j4DJ4g2XkZF0/oOXTdnk5qxWmlBqqvPFx356BsaG+of6xwe6uge4hDmNL'
+    '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'
+    'fEd0QgQA'
+)
+ENGINE_SHA256 = '73d8102100553173c82cc628b98c0e57c2db386f18fd9d3da17d5af525da2e8f'
+
+def proxy_url(value):
     value = str(value or '').strip()
-    if not value: raise ValueError('代理为空')
-    if '://' not in value: value = 'http://' + value
-    try:
-        u = urlsplit(value)
-        if u.scheme not in ('http', 'https') or not u.hostname or not u.port or u.path not in ('', '/') or u.query or u.fragment:
-            raise ValueError('代理格式错误')
-    except ValueError:
+    if '://' not in value:
+        value = 'http://' + value
+    parsed = urlsplit(value)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname or not parsed.port or parsed.path not in ('', '/') or parsed.query or parsed.fragment:
         raise ValueError('代理格式错误')
     return value.rstrip('/')
 
-def parse_proxy_response(value):
+def parse_proxy(value):
     if isinstance(value, str):
-        value = value.strip()
-        if not value: raise ValueError('代理 API 返回空内容')
-        try: return parse_proxy_response(json.loads(value))
-        except json.JSONDecodeError: return normalize_proxy(value.splitlines()[0].strip())
-    if isinstance(value, list):
-        if not value: raise ValueError('代理 API 返回空列表')
-        return parse_proxy_response(value[0])
+        try: return parse_proxy(json.loads(value))
+        except json.JSONDecodeError: return proxy_url(value.splitlines()[0])
+    if isinstance(value, list) and value: return parse_proxy(value[0])
     if isinstance(value, dict):
-        if value.get('ip') and value.get('port'):
-            return normalize_proxy(str(value['ip']) + ':' + str(value['port']))
+        if value.get('ip') and value.get('port'): return proxy_url(str(value['ip']) + ':' + str(value['port']))
         for key in ('proxy', 'address', 'server', 'data', 'result', 'list', 'proxies', 'proxy_list', 'ip_list'):
-            if key in value: return parse_proxy_response(value[key])
-    raise ValueError('无法识别代理 API 返回内容')
+            if key in value: return parse_proxy(value[key])
+    raise ValueError('代理接口返回无效')
 
-def choose_proxy(mode, fixed, pool, api, account_key):
-    import hashlib
-    from urllib.parse import urlsplit
-    mode = str(mode or 'direct').strip().lower()
-    if mode in ('', 'direct', 'off', '0'): return ''
-    if mode == 'fixed': return normalize_proxy(fixed)
-    if mode == 'pool':
-        items = [normalize_proxy(x) for x in re.split(r'[,\n\r]+', str(pool or '')) if x.strip()]
+def get_proxy(key):
+    mode = str(middleware.bucketGet('bing_rewards', 'proxy_mode') or 'direct').strip().lower()
+    if mode in ('', 'direct', 'off', '0'): return None
+    if mode == 'fixed': value = proxy_url(middleware.bucketGet('bing_rewards', 'proxy_fixed'))
+    elif mode == 'pool':
+        items = [proxy_url(v) for v in re.split(r'[,\n\r]+', str(middleware.bucketGet('bing_rewards', 'proxy_pool') or '')) if v.strip()]
         if not items: raise ValueError('代理池为空')
-        index = int(hashlib.sha256(str(account_key).encode()).hexdigest(), 16) % len(items)
-        return items[index]
-    if mode == 'api':
-        url = str(api or '').strip()
-        u = urlsplit(url)
-        if u.scheme not in ('http', 'https') or not u.hostname: raise ValueError('代理 API 地址无效')
-        client = requests.Session()
-        client.trust_env = False
+        value = items[int(hashlib.sha256(key.encode()).hexdigest(), 16) % len(items)]
+    elif mode == 'api':
+        url = str(middleware.bucketGet('bing_rewards', 'proxy_api') or '').strip()
+        if urlsplit(url).scheme not in ('http', 'https') or not urlsplit(url).hostname: raise ValueError('代理接口地址错误')
+        session = requests.Session(); session.trust_env = False
         try:
-            response = client.get(url, timeout=15, allow_redirects=False, stream=True)
-            response.raise_for_status()
-            data = response.raw.read(65537)
-            if len(data) > 65536: raise ValueError('代理 API 返回过大')
-            return parse_proxy_response(data.decode('utf-8-sig'))
-        finally:
-            client.close()
-    raise ValueError('代理模式无效')
+            response = session.get(url, timeout=15, allow_redirects=False, stream=True)
+            response.raise_for_status(); data = response.raw.read(65537)
+            if len(data) > 65536: raise ValueError('代理接口返回过大')
+            value = parse_proxy(data.decode('utf-8-sig'))
+        finally: session.close()
+    else: raise ValueError('代理模式错误')
+    p = urlsplit(value)
+    return {'url': p.scheme + '://' + p.hostname, 'port': p.port, 'username': unquote(p.username or ''), 'password': unquote(p.password or '')}
 
-def panel_main():
-    import contextlib
-    import io
-    import hashlib
-    import sys
-    from urllib.parse import urlsplit
-    from autman import middleware
+def count_workers():
+    try: return max(1, min(4, int(str(middleware.bucketGet('bing_rewards', 'concurrency') or '2'))))
+    except ValueError: return 2
 
+def account_lock(record):
+    return 'account-' + hashlib.sha256(record['email'].strip().lower().encode()).hexdigest()
+
+@contextlib.contextmanager
+def take_lock(path, wait=True):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'a+') as f:
+        os.chmod(path, 0o600)
+        fcntl.flock(f, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        try: yield
+        finally: fcntl.flock(f, fcntl.LOCK_UN)
+
+def run_account(key, record, proxy, mode, workers, receive_code=None):
+    try:
+        with take_lock(ROOT / 'locks' / 'engine-update'):
+            if ENGINE_DATA and (not ENGINE.exists() or hashlib.sha256(ENGINE.read_bytes()).hexdigest() != ENGINE_SHA256):
+                data = gzip.decompress(base64.b64decode(ENGINE_DATA))
+                if hashlib.sha256(data).hexdigest() != ENGINE_SHA256: raise ValueError('引擎校验失败')
+                temporary = ENGINE.with_name('.engine-' + uuid.uuid4().hex)
+                temporary.write_bytes(data); os.chmod(temporary, 0o600); os.replace(temporary, ENGINE)
+        if not ENGINE.exists(): return {'ok': False, 'error': '运行环境未安装'}
+    except Exception:
+        return {'ok': False, 'error': '任务引擎加载失败'}
+    root = ROOT / 'accounts' / key
+    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(root, 0o700)
+    # 同一账号避免重复运行；全局锁让定时和手动执行共享并发上限。
+    try:
+        with take_lock(ROOT / 'locks' / account_lock(record), False):
+            while True:
+                for i in range(workers):
+                    try:
+                        with take_lock(ROOT / 'locks' / ('slot-' + str(i)), False):
+                            return invoke_engine(root, record, proxy, mode, receive_code)
+                    except BlockingIOError: pass
+                time.sleep(1)
+    except BlockingIOError:
+        return {'ok': False, 'error': '该账号正在运行'}
+
+def invoke_engine(root, record, proxy, mode, receive_code=None):
+    env = os.environ.copy()
+    for name in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+        env.pop(name, None)
+    env['MS_REWARDS_ACCOUNTS'] = json.dumps([{'email': record['email'], 'password': record['password'], 'totpSecret': record.get('totp', '')}], ensure_ascii=False)
+    env['YH_REWARDS_PROXY'] = json.dumps(proxy or {})
+    env['YH_REWARDS_QUERY'] = '1' if mode == 'query' else '0'
+    env['YH_INTERACTIVE'] = '1' if receive_code else '0'
+    env['NODE_PATH'] = str(ROOT / 'node_modules')
+    try:
+        process = subprocess.Popen(['node', str(ENGINE)], cwd=str(root), env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
+        output, deadline, lines = [], time.monotonic() + 3600, queue.Queue()
+        def read_lines():
+            for line in process.stdout: lines.put(line)
+            lines.put(None)
+        threading.Thread(target=read_lines, daemon=True).start()
+        while True:
+            if time.monotonic() > deadline:
+                os.killpg(process.pid, signal.SIGKILL); process.wait()
+                return {'ok': False, 'error': '执行超时'}
+            try: line = lines.get(timeout=1)
+            except queue.Empty: continue
+            if line is None: break
+            if line.strip() == 'YH_NEED_EMAIL_CODE':
+                code = receive_code() if receive_code else ''
+                try: process.stdin.write(code + '\n'); process.stdin.flush()
+                except BrokenPipeError: return {'ok': False, 'error': '验证码等待超时，请重新登录'}
+            elif line.startswith('YH_RESULT:') or '需要邮箱验证码' in line:
+                output.append(line)
+        process.wait(); output = ''.join(output)
+    except OSError: return {'ok': False, 'error': '无法启动任务环境'}
+    marker = None
+    for line in output.splitlines():
+        if line.startswith('YH_RESULT:'):
+            try: marker = json.loads(line[len('YH_RESULT:'):])
+            except ValueError: pass
+    if not marker or not marker.get('flowCompleted'):
+        if '需要邮箱验证码' in output: return {'ok': False, 'error': '微软要求邮箱验证码，请私聊发送必应登录重新验证'}
+        return {'ok': False, 'error': '微软登录或积分查询未成功，请检查账号、验证方式、代理与网络'}
+    return {'ok': True, 'points': marker.get('finalPoints'), 'before': marker.get('initialPoints'), 'partial': bool(marker.get('partial'))}
+
+def main():
     sender = middleware.Sender(middleware.getSenderID())
     msg = str(sender.getMessage() or '').strip()
-    commands = ('必应登录', '必应Cookie登录', '必应账号登录', '必应查询', '必应积分', '必应运行', '必应删除')
-    interactive = msg in commands
+    interactive = msg in ('必应登录', '必应账号登录', '必应查询', '必应积分', '必应运行', '必应删除')
     owner = ''
     if interactive:
-        chat = str(sender.getChatID() or '').strip()
-        if chat and chat != '0':
-            sender.reply('请私聊机器人管理必应账号。')
-            return
-        platform = str(sender.getImtype() or '').strip()
-        user = str(sender.getUserID() or '').strip()
-        if not platform or not user:
-            sender.reply('无法识别用户，请使用支持私聊的平台。')
-            return
-        owner = hashlib.sha256((platform + '\x00' + user).encode()).hexdigest()
-
-    bucket = 'bing_rewards_accounts'
+        if str(sender.getChatID() or '').strip() not in ('', '0'):
+            sender.reply('请私聊机器人管理账号。'); return
+        platform, user = str(sender.getImtype() or '').strip(), str(sender.getUserID() or '').strip()
+        if not platform or not user: sender.reply('无法识别用户。'); return
+        owner = hashlib.sha256((platform + '\0' + user).encode()).hexdigest()
     def load(key):
+        try: return json.loads(str(middleware.bucketGet(BUCKET, key) or '{}'))
+        except (ValueError, TypeError): return {}
+    def receive(): return str(sender.input(120000, 1000, False) or '').strip()
+    workers = count_workers()
+    if msg in ('必应登录', '必应账号登录'):
+        sender.reply('请私聊发送微软账号邮箱，发送 q 取消。输入消息会尝试撤回。')
+        email = receive()
+        if not email or email.lower() == 'q': sender.reply('已取消。'); return
+        if not re.fullmatch(r'[A-Za-z0-9_+.-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}', email): sender.reply('邮箱格式无效。'); return
+        sender.reply('请私聊发送密码；发送 q 取消。')
+        password = receive()
+        if not password or password.lower() == 'q': sender.reply('已取消。'); return
+        sender.reply('如启用动态口令，请发送 TOTP 密钥；没有则发送 0。')
+        totp = receive()
+        if not totp or totp.lower() == 'q': sender.reply('已取消。'); return
+        record = {'email': email, 'password': password, 'totp': '' if totp == '0' else totp, 'platform': platform, 'user': user}
+        try: proxy = get_proxy(owner)
+        except Exception: sender.reply('代理配置不可用，请联系管理员。'); return
+        sender.reply('正在验证登录，请稍候。')
+        # 使用临时会话验证新密码，不能被以前的登录 Cookie 掩盖。
+        test_key = 'verify-' + uuid.uuid4().hex
+        def receive_code():
+            sender.reply('微软已发送邮箱验证码，请在两分钟内私聊发送验证码；发送 q 取消。')
+            return receive()
         try:
-            obj = json.loads(str(middleware.bucketGet(bucket, key) or '{}'))
-            return obj if isinstance(obj, dict) else {}
-        except (ValueError, TypeError):
-            return {}
-    def save(key, value):
-        return middleware.bucketSet(bucket, key, json.dumps(value, ensure_ascii=False))
-    def set_proxy(key):
-        # 管理员配置的代理失败时停止该账号，避免悄悄切换为直连。
-        os.environ.pop('BING_PROXY', None)
-        value = choose_proxy(middleware.bucketGet('bing_rewards', 'proxy_mode'),
-                             middleware.bucketGet('bing_rewards', 'proxy_fixed'),
-                             middleware.bucketGet('bing_rewards', 'proxy_pool'),
-                             middleware.bucketGet('bing_rewards', 'proxy_api'), key)
-        if value: os.environ['BING_PROXY'] = value
-        return value
-    def receive(timeout=120000):
-        return str(sender.input(timeout, 1000, False) or '').strip()
-    def reply(text):
-        if interactive: sender.reply(text)
-        else: print(text)
-    if msg in ('必应登录', '必应Cookie登录'):
-        sender.reply('请私聊发送 cn.bing.com 登录后的完整 Cookie；发送 q 取消。输入消息将尝试撤回。')
-        value = receive()
-        if not value or value.lower() in ('q', '取消'):
-            sender.reply('已取消或等待超时。'); return
-        if len(value) > 20000 or not parse_cookie(value):
-            sender.reply('Cookie 格式无效，请重新发送“必应登录”。'); return
-        record = load(owner)
-        try: set_proxy(owner)
-        except Exception:
-            sender.reply('代理配置不可用，请联系管理员检查。'); return
-        score = check_points(make_session(value))
-        if score is None:
-            sender.reply('未能验证 Cookie，请确认账号已开通积分并检查代理与网络；原账号未更改。'); return
-        record.update({'cookie': value, 'platform': platform, 'user': user})
-        if not save(owner, record):
-            sender.reply('保存失败，请联系管理员检查面板存储。'); return
-        sender.reply('登录成功，当前积分：%s。' % score); return
-    if msg == '必应账号登录':
-        sender.reply('微软账号密码登录可能需要验证码或多重验证，目前请先在微软官方页面登录，再发送“必应Cookie登录”。请勿在聊天中发送密码。'); return
+            result = run_account(test_key, record, proxy, 'query', workers, receive_code)
+            if not result['ok']: sender.reply(result['error'] + '；原绑定未更改。'); return
+            source = ROOT / 'accounts' / test_key / 'sessions'
+            if not source.is_dir(): sender.reply('验证成功，但浏览器会话未保存；原绑定未更改。'); return
+            try:
+                with take_lock(ROOT / 'locks' / account_lock(record), False):
+                    if not middleware.bucketSet(BUCKET, owner, json.dumps(record, ensure_ascii=False)):
+                        sender.reply('面板保存失败。'); return
+                    target = ROOT / 'accounts' / owner
+                    target.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    old = target / ('sessions-old-' + uuid.uuid4().hex)
+                    if (target / 'sessions').exists(): os.replace(target / 'sessions', old)
+                    try: os.replace(source, target / 'sessions')
+                    except OSError:
+                        if old.exists(): os.replace(old, target / 'sessions')
+                        sender.reply('账号已保存，但会话保存失败，请重新登录。'); return
+                    shutil.rmtree(old, ignore_errors=True)
+            except BlockingIOError:
+                sender.reply('该账号正在运行，请稍后重新登录。'); return
+            sender.reply('登录成功，当前积分：%s。' % result['points']); return
+        finally:
+            shutil.rmtree(ROOT / 'accounts' / test_key, ignore_errors=True)
     if msg == '必应删除':
-        sender.reply('回复“确认删除”删除你的必应账号；回复其他内容取消。')
-        if receive(60000) != '确认删除':
-            sender.reply('已取消删除。'); return
-        ok = middleware.bucketDel(bucket, owner)
-        middleware.bucketDel('bing_rewards_results', owner)
-        sender.reply('已删除。' if ok else '删除失败，请联系管理员。'); return
-    if msg in ('必应查询', '必应积分'):
+        sender.reply('回复“确认删除”以删除账号；其他内容取消。')
+        if receive() != '确认删除': sender.reply('已取消。'); return
         record = load(owner)
-        if not record.get('cookie'):
-            sender.reply('你还没有绑定账号，请发送“必应登录”。'); return
-        try: set_proxy(owner)
-        except Exception:
-            sender.reply('代理配置不可用，请联系管理员检查。'); return
-        score = check_points(make_session(record['cookie']))
-        sender.reply('Cookie 验证通过，当前积分：%s' % score if score is not None else '无法验证 Cookie，可能是登录失效、代理或网络问题；请检查后重试。'); return
-
-    config = {'BING_SEARCH_TIMES': middleware.bucketGet('bing_rewards', 'search_times'),
-              'BING_DELAY': middleware.bucketGet('bing_rewards', 'delay'),
-              'BING_WAIT_SECONDS': middleware.bucketGet('bing_rewards', 'wait_seconds'),
-              'BING_OFFERS': middleware.bucketGet('bing_rewards', 'offers'),
-              'BING_CHECKIN': middleware.bucketGet('bing_rewards', 'checkin'),
-              'BING_CLAIM': middleware.bucketGet('bing_rewards', 'claim')}
-    for key, value in config.items():
-        if value is not None and str(value).strip(): os.environ[key] = str(value).strip()
-        else: os.environ.pop(key, None)
-    class Capture:
-        def __init__(self, secrets): self.buffer = io.StringIO(); self.secrets = secrets
-        def write(self, text):
-            for secret in self.secrets:
-                if secret: text = text.replace(secret, "[已隐藏]")
-            self.buffer.write(text); sys.__stdout__.write(text); return len(text)
-        def flush(self): sys.__stdout__.flush()
-    def execute(key, record):
-        cookie = record.get('cookie') or ''
-        if not cookie: return False
-        try: proxy = set_proxy(key)
-        except Exception:
-            print('代理配置不可用，本账号未执行。')
-            return False
-        cookies = [item.strip() for item in re.split(r'[\n#]', cookie) if item.strip()]
-        valid = []
-        checks = []
-        for index, item in enumerate(cookies, 1):
-            score = check_points(make_session(item))
-            checks.append({'account': index, 'status': 'valid' if score is not None else 'unconfirmed'})
-            if score is not None: valid.append(item)
-            else: print('账号%s的 Cookie 无法验证，请检查登录状态、代理与网络，已跳过。' % index)
-        check_saved = middleware.bucketSet('bing_rewards_results', key + ':cookie_check', json.dumps({
-            'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'accounts': checks
-        }, ensure_ascii=False))
-        if not check_saved: print('Cookie 检测结果保存失败。')
-        if not valid: return False
-        os.environ['by'] = '\n'.join(valid)
-        capture, error = Capture([cookie, proxy] + cookies), ''
+        if not record.get('email'):
+            middleware.bucketDel(BUCKET, owner); middleware.bucketDel(RESULTS, owner)
+            sender.reply('账号记录已删除。'); return
         try:
-            with contextlib.redirect_stdout(capture): run_rewards()
-        except Exception as exc:
-            error = type(exc).__name__
-        result = {'time': time.strftime('%Y-%m-%d %H:%M:%S'), 'output': capture.buffer.getvalue()[-30000:], 'error': error}
-        saved = middleware.bucketSet('bing_rewards_results', key, json.dumps(result, ensure_ascii=False))
-        return not error and bool(saved)
-    if msg == '必应运行':
+            with take_lock(ROOT / 'locks' / account_lock(record), False):
+                middleware.bucketDel(BUCKET, owner); middleware.bucketDel(RESULTS, owner)
+                shutil.rmtree(ROOT / 'accounts' / owner, ignore_errors=True)
+        except BlockingIOError:
+            sender.reply('账号正在运行，请结束后重试删除。'); return
+        sender.reply('账号记录和浏览器会话已删除。'); return
+    if interactive:
         record = load(owner)
-        if not record.get('cookie'):
-            sender.reply('你还没有绑定账号，请发送“必应登录”。'); return
-        sender.reply('开始执行，请稍候。')
-        ok = execute(owner, record)
-        sender.reply('执行结束，积分到账请以微软页面为准。' if ok else '任务未执行或记录保存失败；请检查 Cookie、代理和网络，或联系管理员查看日志。')
-        return
-    # 定时任务逐个处理社媒用户；保留原有管理员面板 Cookie 的兼容性。
-    keys = list(middleware.bucketAllKeys(bucket))
-    seen = set()
-    for key in keys:
-        record = load(str(key))
-        cookie = record.get('cookie') or ''
-        digest = hashlib.sha256(cookie.encode()).hexdigest() if cookie else ''
-        if digest and digest not in seen:
-            seen.add(digest)
-            execute(str(key), record)
-    legacy = str(middleware.bucketGet('bing_rewards', 'cookie') or '').strip()
-    if legacy and hashlib.sha256(legacy.encode()).hexdigest() not in seen:
-        execute('legacy', {'cookie': legacy})
-    print('必应积分定时任务结束。')
+        if not record.get('email') or not record.get('password'):
+            sender.reply('尚未绑定账号密码，请发送“必应登录”。'); return
+        try: proxy = get_proxy(owner)
+        except Exception: sender.reply('代理配置不可用，请联系管理员。'); return
+        sender.reply('正在执行，请稍候。')
+        def receive_code():
+            sender.reply('微软已发送邮箱验证码，请在两分钟内私聊发送验证码；发送 q 取消。')
+            return receive()
+        result = run_account(owner, record, proxy, 'run' if msg == '必应运行' else 'query', workers, receive_code)
+        if not result['ok']: sender.reply(result['error']); return
+        middleware.bucketSet(RESULTS, owner, json.dumps({'time': time.time(), **result}))
+        sender.reply('当前积分：%s。%s' % (result['points'], '部分任务状态待确认。' if result['partial'] else '')); return
+    records, seen = [], set()
+    for key in middleware.bucketAllKeys(BUCKET):
+        key = str(key); record = load(key)
+        if record.get('email') and record.get('password'):
+            email = record['email'].strip().lower()
+            if email in seen: continue
+            seen.add(email)
+            try: records.append((key, record, get_proxy(key)))
+            except Exception: print('账号代理配置不可用，已跳过。')
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(run_account, key, record, proxy, 'run', workers): key for key, record, proxy in records}
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try: result = future.result()
+            except Exception: result = {'ok': False, 'error': '执行异常'}
+            middleware.bucketSet(RESULTS, key, json.dumps({'time': time.time(), **result}))
+            print('账号执行结束：' + ('成功' if result.get('ok') else result.get('error', '失败')))
 
-if __name__ == '__main__': panel_main()
+if __name__ == '__main__': main()
