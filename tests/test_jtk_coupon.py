@@ -3,6 +3,7 @@ import json
 import tempfile
 import time
 import unittest
+import threading
 from pathlib import Path
 
 plugin_file = Path(__file__).with_name('jtk_coupon.py')
@@ -63,7 +64,7 @@ class Tests(unittest.TestCase):
             'couponInfo': [{'discount': 10, 'quota': 99}], 'priceInfo': {'lowestCouponPrice': 89}})
         self.assertIn('满99减10元', result)
         self.assertIn('券后参考价：¥89', result)
-        self.assertIn('不代表已到账', result)
+        self.assertIn('以购买页面为准', result)
     def test_expired_coupon_not_claimed(self):
         result = p.product_message({'link': 'https://u.jd.com/test', 'is_coupon': 1,
             'couponInfo': [{'discount': 10, 'quota': 99, 'takeEndTime': 1}]})
@@ -183,6 +184,148 @@ class Tests(unittest.TestCase):
         sender=Sender()
         sender.isAdmin=lambda:'false'
         self.assertFalse(p.Plugin(sender,self.mw,self.state).admin())
+
+    def item(self, provider='jtk', commission='2.00', pid='123', source='taobao'):
+        return {'_provider':provider,'_commission':commission,'_product_id':pid,'_source':source,
+            'skuName':'普通商品','link':'https://uland.taobao.com/coupon/a','is_coupon':0,
+            'priceInfo':{'lowestCouponPrice':10},'shopInfo':{'shopName':'同一店铺'}}
+
+    def test_select_largest_amount_not_string_or_rate(self):
+        result=p.select_result([self.item('jtk','9.9'),self.item('ztk','12.01')])
+        self.assertEqual(result['_provider'],'ztk')
+        self.assertIn('已比较',result['_selection'])
+
+    def test_fee_adjustment_changes_winner(self):
+        result=p.select_result([self.item('jtk','9'),self.item('ztk','10')],factors={'ztk':.8})
+        self.assertEqual(result['_provider'],'jtk')
+
+    def test_unknown_is_not_zero(self):
+        result=p.select_result([self.item('jtk',None),self.item('ztk','10')])
+        self.assertEqual(result['_provider'],'jtk')
+        self.assertIn('不足',result['_selection'])
+        self.assertEqual(p.select_result([self.item('jtk','0'),self.item('ztk','1')])['_provider'],'ztk')
+
+    def test_different_product_ids_cannot_compete(self):
+        result=p.select_result([self.item('jtk','1','123'),self.item('ztk','20','124')])
+        self.assertEqual(result['_provider'],'jtk')
+        self.assertIn('不足',result['_selection'])
+
+    def test_opaque_ids_require_same_title_shop_price(self):
+        a,b=self.item('jtk','1','opaque'),self.item('ztk','2','123')
+        self.assertTrue(p.comparable(a,b))
+        b['skuName']='其他规格'
+        self.assertFalse(p.comparable(a,b))
+
+    def test_parallel_calls_and_one_failure_fallback(self):
+        barrier=threading.Barrier(2,timeout=2)
+        item=self.item()
+        class Good:
+            def goods(self,*args): barrier.wait(); return item
+        class Bad:
+            def goods(self,*args): barrier.wait(); raise p.PluginError('授权无效')
+        result=p.ComparisonClient({'jtk':Good(),'ztk':Bad()}).goods('https://item.taobao.com/item.htm?id=123','sid')
+        self.assertEqual(result['_provider'],'jtk')
+        self.assertIn('ztk',result['_errors'])
+
+    def test_jd_never_calls_zhetaoke(self):
+        item=self.item(source='jd')
+        class Good:
+            def goods(self,*args): return item
+        class MustNotCall:
+            def goods(self,*args): raise AssertionError('JD sent to Zhetaoke')
+        result=p.ComparisonClient({'jtk':Good(),'ztk':MustNotCall()}).goods('https://item.jd.com/123.html','sid')
+        self.assertNotIn('ztk',result['_errors'])
+
+    def test_no_affiliate_words_in_public_render_and_help(self):
+        item=p.select_result([self.item('jtk','10'),self.item('ztk','12')],{'private':'返利接口错误'})
+        item['skuName']='返利商品 佣金 推广 渠道'
+        plugin=p.Plugin(Sender(),self.mw,self.state)
+        text=plugin.render(item)
+        for word in ('返利','返佣','佣金','推广','渠道','聚推客','折淘客'):
+            self.assertNotIn(word,text)
+            self.assertNotIn(word,p.HELP)
+        self.assertNotIn('private',text)
+
+    def test_admin_amount_private_only_and_switch(self):
+        item=p.select_result([self.item('jtk','10'),self.item('ztk','12')])
+        private=p.Plugin(Sender(admin=True),self.mw,self.state)
+        self.assertIn('预估返利金额：¥12',private.render(item))
+        group=p.Plugin(Sender(admin=True,chat='group'),self.mw,self.state)
+        self.assertNotIn('返利',group.render(item))
+        self.mw.values['admin_amount']='false'
+        self.assertNotIn('返利',private.render(item))
+
+    def test_shared_cache_never_contains_rendered_admin_text(self):
+        item=self.item(commission='77')
+        class Client:
+            def goods(self,*args): return item
+        admin=p.Plugin(Sender(admin=True),self.mw,self.state,Client())
+        self.assertIn('返利',admin.handle('https://item.taobao.com/item.htm?id=123')[0])
+        ordinary=p.Plugin(Sender(),self.mw,self.state,Client())
+        self.assertNotIn('返利',ordinary.handle('https://item.taobao.com/item.htm?id=123')[0])
+
+    def test_config_change_invalidates_cache(self):
+        plugin=p.Plugin(Sender(),self.mw,self.state)
+        before=plugin.cache_key('sid','link')
+        self.mw.values['ztk_key']='another-synthetic-key'
+        self.assertNotEqual(before,plugin.cache_key('sid','link'))
+
+    def test_configuration_bounds(self):
+        plugin=p.Plugin(Sender(),self.mw,self.state)
+        for value,expected in [('nan',8),('-1',3),('99',15),('bad',8)]:
+            self.mw.values['request_timeout']=value
+            self.assertEqual(plugin.number('request_timeout',8,3,15),expected)
+
+    def test_history_disabled_and_zero_cache_ttl(self):
+        self.state.remember('key','sid',self.item(),ttl=0,save_history=False)
+        self.assertIsNone(self.state.cached('key'))
+        self.assertEqual(self.state.history('sid'),[])
+
+    def test_ztk_normalizes_amount_and_stable_pdd_tracking(self):
+        calls=[]
+        def transport(endpoint,params):
+            calls.append(params)
+            return {'status':200,'plat':3,'tao_id':'123','title':'商品','tkfee3':'5.12','tkrate3':'90',
+                'size':'20','quanhou_jiage':'10','is_youquan':'1','coupon_info_money':'10',
+                'result_url':'https://mobile.yangkeduo.com/test'}
+        client=p.ZhetaokeClient('synthetic','authsid','mm_1_2_3',transport=transport)
+        data=client.goods('https://mobile.yangkeduo.com/goods.html?goods_id=123','user-sid')
+        self.assertEqual(data['_commission'],'5.12')
+        self.assertEqual(json.loads(calls[0]['custom_parameters'])['uid'],'user-sid')
+        self.assertNotIn('unionId',calls[0])
+
+    def test_ztk_missing_authorization_and_jd_are_rejected(self):
+        calls=[]
+        client=p.ZhetaokeClient('synthetic',transport=lambda *args:calls.append(args))
+        for link in ['https://item.jd.com/123.html','https://item.taobao.com/item.htm?id=123']:
+            with self.assertRaises(p.PluginError):client.goods(link,'sid')
+        self.assertEqual(calls,[])
+
+    def test_ztk_error_never_echoes_raw_key_or_account_data(self):
+        client=p.ZhetaokeClient('secret-key',transport=lambda *args:{'status':301,'msg':'secret-key account-token'})
+        with self.assertRaises(p.PluginError) as caught:client.accounts()
+        self.assertNotIn('secret-key',str(caught.exception))
+        self.assertNotIn('account-token',str(caught.exception))
+
+    def test_ztk_platform_mismatch(self):
+        client=p.ZhetaokeClient('k','s','mm_1_2_3',transport=lambda *args:{'status':200,'plat':2,'result_url':'https://u.jd.com/a'})
+        with self.assertRaises(p.PluginError):client.goods('https://item.taobao.com/item.htm?id=123','sid')
+
+    def test_generic_error_does_not_expose_credentials_in_main(self):
+        import sys,types
+        sender=Sender()
+        sender.getMessage=lambda:'https://item.taobao.com/item.htm?id=123'
+        replies=[]
+        sender.reply=replies.append
+        middleware=types.SimpleNamespace(Sender=lambda _:sender,getSenderID=lambda:'x')
+        sys.modules['middleware']=middleware
+        from unittest.mock import patch
+        with patch.object(p,'State',return_value=self.state),patch.object(p.Plugin,'handle',side_effect=p.PluginError('返利 secret-key')):
+            p.main()
+        self.assertNotIn('secret-key',replies[0])
+        self.assertNotIn('返利',replies[0])
+        # main closes the state; reopen for tearDown.
+        self.state=p.State(Path(self.temp.name)/'state.sqlite3')
 
 
 if __name__ == '__main__':

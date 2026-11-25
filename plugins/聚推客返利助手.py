@@ -1,20 +1,35 @@
-# [title: 聚推客返利助手]
+# [title: 优惠券查询]
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 1.1.1]
+# [version: 2.0.0]
 # [public: true]
 # [open_source: true]
 # [disable: false]
 # [priority: 100]
-# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:返利帮助|返利菜单|查券帮助|返利平台|返利精选|返利检测|返利活动(?:\s+\S+)?|返利订单|我的返利订单|返利渠道|美团外卖优惠|淘宝闪购优惠|返利记录|清空返利记录)$|^查券\s+.+$|^返利测试\s+.+$]
-# [description: 发送多平台购物链接，返回商品、优惠券和领券购买链接；外卖活动、个人跟单、历史记录与管理员检测。复用面板所有社媒接入，不需要自有京东联盟账号。]
-# [param: {"required":true,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客API Key","desc":"聚推客个人中心获取；只存面板配置，不要写进插件源码。"}]
-# [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客pub_id","desc":"个人中心的推广者身份标识；新版京东、淘宝、拼多多商品查券需要。"}]
-# [param: {"required":false,"key":"jtk_coupon.sid_secret","bool":false,"name":"渠道签名密钥","desc":"首次使用自动生成，长期保留；更换会影响旧订单归属。"}]
-# [param: {"required":false,"key":"jtk_coupon.send_image","bool":true,"name":"发送商品图","desc":"查券成功后附一张商品图；关闭后只发文本。"}]
-# [param: {"required":false,"key":"jtk_coupon.mt_act_id","bool":false,"name":"美团活动ID","desc":"管理员发送 返利活动 美团 查询当前活动ID。"}]
-# [param: {"required":false,"key":"jtk_coupon.ele_act_id","bool":false,"name":"淘宝闪购活动ID","desc":"管理员发送 返利活动 外卖 查询当前活动ID。"}]
+# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$]
+# [description: 发送购物链接查询优惠券、商品信息和购买入口，支持精选商品、外卖优惠与个人查询记录。]
+# [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
+# [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_key","bool":false,"name":"折淘客 AppKey","desc":"折淘客对接密钥；不写进源码。仅 Key 不足以完成转链，还需授权 SID、PID。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_sid","bool":false,"name":"折淘客授权 SID","desc":"授权管理中的淘客账号授权 ID，不是用户标识；淘宝、拼多多、唯品会批量转链接口需要。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_pid","bool":false,"name":"折淘客 PID","desc":"与授权账户一致的 mm_数字_数字_数字；未配置时折淘客失败不会影响聚推客结果。"}]
+# [param: {"required":false,"key":"jtk_coupon.jtk_enabled","bool":false,"name":"启用聚推客","desc":"留空默认开启；填 false 可关闭。提供京东与其他已开通平台查询。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_enabled","bool":false,"name":"启用折淘客","desc":"留空且已配置 Key 时默认开启；填 false 可关闭。京东始终不会发送至折淘客。"}]
+# [param: {"required":false,"key":"jtk_coupon.preferred_provider","bool":false,"name":"信息不足时优先接口","desc":"jtk（默认）或 ztk；只有同商品且两家金额均已知时，才按最高金额选择。"}]
+# [param: {"required":false,"key":"jtk_coupon.jtk_factor","bool":false,"name":"聚推客金额系数","desc":"0～1，默认 1；比较金额乘此系数，可按服务费调整；未设置表示比较平台原始预估。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_factor","bool":false,"name":"折淘客金额系数","desc":"0～1，默认 1；与聚推客系数口径一致才有比较意义。普通用户不展示金额。"}]
+# [param: {"required":false,"key":"jtk_coupon.admin_amount","bool":false,"name":"管理员显示金额","desc":"留空默认开启；false 关闭；只在管理员私聊显示返利金额、接口比较与失败原因。"}]
+# [param: {"required":false,"key":"jtk_coupon.request_timeout","bool":false,"name":"单次接口超时（秒）","desc":"3～15，默认 8；两家并行查询，聚推客解析加转链最多两次请求。"}]
+# [param: {"required":false,"key":"jtk_coupon.cache_seconds","bool":false,"name":"查询缓存（秒）","desc":"0～600，默认 60；0 禁用。按用户和配置隔离；更换密钥、授权或系数后自动失效。"}]
+# [param: {"required":false,"key":"jtk_coupon.rate_limit","bool":false,"name":"每用户每分钟次数","desc":"1～30，默认 8；限制商品、精选和外卖查询频率。帮助、记录不计入。"}]
+# [param: {"required":false,"key":"jtk_coupon.group_query","bool":false,"name":"群聊自动查询","desc":"留空默认开启；false 时群内发送链接不查询，需私聊；群聊永不展示管理员金额。"}]
+# [param: {"required":false,"key":"jtk_coupon.allowed_platforms","bool":false,"name":"开放的平台","desc":"留空全部；用英文逗号填写 jd,taobao,pdd,vip,kaola,douyin,kuaishou。实际成功依赖接口权限。"}]
+# [param: {"required":false,"key":"jtk_coupon.send_image","bool":true,"name":"发送商品图","desc":"查券后附一张可信商品图；关闭只发文本。"}]
+# [param: {"required":false,"key":"jtk_coupon.history_enabled","bool":false,"name":"保存查询记录","desc":"留空默认开启；false 不再保存新记录，缓存仍可使用。只保存商品标题与链接；私聊可清空。"}]
+# [param: {"required":false,"key":"jtk_coupon.mt_act_id","bool":false,"name":"美团活动 ID","desc":"管理员私聊发送 优惠券活动 美团 查看当前 ID；外卖活动使用聚推客。"}]
+# [param: {"required":false,"key":"jtk_coupon.ele_act_id","bool":false,"name":"淘宝闪购活动 ID","desc":"管理员私聊发送 优惠券活动 外卖 查看当前 ID；外卖活动使用聚推客。"}]
+# [param: {"required":false,"key":"jtk_coupon.sid_secret","bool":false,"name":"用户标识签名密钥","desc":"首次由管理员初始化后长期保留；更换会影响既有用户和订单归属，不要随意修改。"}]
 
 """AutMan Python middleware plugin. Python 3.9+, standard library only."""
 import datetime as dt
@@ -33,28 +48,26 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '1.1.1'
+VERSION = '2.0.0'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
-HELP = '''🛍 聚推客返利助手
-直接发购物链接，或：查券 链接
-识别京东、淘宝/天猫、拼多多、唯品会、考拉、抖音、快手；实际可转范围由聚推客接口决定。
-回复：商品名称、店铺、优惠券、参考价格、领券购买链接。
+HELP = """🛍 优惠券查询
+直接发送购物链接，或：查券 链接
+返回商品名称、店铺、优惠券、参考价格和领券购买入口。
 
+🛒 优惠券精选：查看当前精选商品
 🍱 美团外卖优惠 / 淘宝闪购优惠
-🧾 返利订单：私聊查看最近1小时的本人订单
-🛒 返利精选：查看平台当前可推广的好券商品
-🕘 返利记录：最近5次成功查券
-🪪 返利渠道：查看本人渠道标识
-🧹 清空返利记录：只清本人的查券记录
+🕘 查询记录：私聊查看最近 5 次成功查询
+🧹 清空查询记录：清除本人的查询记录
+📋 支持平台：查看平台说明
 
-优惠券、渠道预估佣金不等于现金余额；最终以购买页、平台结算为准。
-管理员：返利检测 / 返利活动 关键词 / 返利测试 京东链接'''
+价格、优惠券有效期和使用条件以购买页面为准。"""
 PLATFORMS = {
     'jd': ('京东', ('jd.com', '3.cn', 'jingxi.com')),
     'taobao': ('淘宝/天猫', ('taobao.com', 'tmall.com', 'tb.cn', 'tb.com')),
@@ -184,6 +197,9 @@ class Client:
         data = self.request('/jd/get_goods_link', {'goods_link': link, 'sid': sid})
         if not isinstance(data, dict) or not valid_url(data.get('link')):
             raise PluginError('未返回可用推广链接，商品可能未参与推广或账号无此业务权限。')
+        data['_provider'], data['_source'] = 'jtk', 'jd'
+        info = data.get('commissionInfo') or {}
+        data['_commission'] = amount(info.get('commission')) if isinstance(info, dict) else None
         return data
 
     def convert_product(self, parsed, sid):
@@ -198,12 +214,22 @@ class Client:
         raw_discount = coupon_info.get('fav') if source == 'vip' else coupon_info.get('fav', converted.get('discount', parsed.get('discount')))
         discount = amount(raw_discount)
         has_coupon = discount is not None and Decimal(discount) > 0
+        coupon = {'discount': discount}
+        for source_key, target_key in (('useBeginTime', 'takeBeginTime'), ('useEndTime', 'takeEndTime')):
+            value = coupon_info.get(source_key)
+            if value:
+                try:
+                    coupon[target_key] = dt.datetime.strptime(str(value), '%Y-%m-%d %H:%M:%S').replace(tzinfo=CN).timestamp() * 1000
+                except (ValueError, TypeError, OverflowError):
+                    coupon['yn'] = '0'
         images = converted.get('goodsCarouselPictures') or []
         image = images[0] if images else parsed.get('goodsThumbUrl')
         return {
+            '_provider': 'jtk', '_product_id': str(parsed.get('skuId') or parsed.get('goodsId') or ''),
+            '_commission': amount(converted.get('commission', parsed.get('commission'))),
             'skuName': converted.get('goodsName') or parsed.get('goodsName'),
             'link': converted['url'], '_source': source, 'is_coupon': 1 if has_coupon else 0,
-            'couponInfo': [{'discount': discount}] if has_coupon else [],
+            'couponInfo': [coupon] if has_coupon else [],
             'priceInfo': {'lowestPrice': converted.get('price', parsed.get('price')),
                 'lowestCouponPrice': converted.get('price', parsed.get('price'))},
             'shopInfo': {'shopName': converted.get('shopName') or parsed.get('shopName')},
@@ -242,7 +268,7 @@ class Client:
         url = valid_url(data.get('h5')) or valid_url(data.get('long_h5'))
         if not url:
             raise PluginError('此活动未返回网页链接，可能仅支持小程序或已下线。')
-        return '%s\n%s\n请从此入口领券下单，优惠和计佣以活动规则为准。' % (safe_text(data.get('act_name') or '外卖活动'), url)
+        return '%s\n%s\n请从此入口领券下单，优惠和使用条件以活动页面为准。' % (public_text(data.get('act_name') or '外卖活动'), url)
 
     def orders(self, sid):
         end = dt.datetime.now(CN).replace(microsecond=0)
@@ -259,14 +285,14 @@ class Client:
 def product_message(data):
     url = valid_url(data.get('link'))
     if not url:
-        raise PluginError('商品没有有效的推广链接。')
-    lines = ['🛍 ' + safe_text(data.get('skuName') or '商品 / 活动', 150)]
+        raise PluginError('商品没有有效的购买链接。')
+    lines = ['🛍 ' + public_text(data.get('skuName') or '商品 / 活动', 150)]
     source = PLATFORMS.get(data.get('_source'), ('', ()))[0]
     if source:
         lines.append('平台：' + source)
     shop = data.get('shopInfo') or {}
     if isinstance(shop, dict) and shop.get('shopName'):
-        lines.append('店铺：' + safe_text(shop['shopName'], 50))
+        lines.append('店铺：' + public_text(shop['shopName'], 50))
     price = data.get('priceInfo') or {}
     price = price if isinstance(price, dict) else {}
     current = amount(price.get('lowestPrice', price.get('price')))
@@ -303,7 +329,7 @@ def product_message(data):
         lines.append('🎫 当前未查到优惠券，可查看购买页的其他优惠。')
     else:
         lines.append('🎫 暂无完整的可领取券信息，以领券页为准。')
-    lines.extend(['', '🔗 领券 / 购买链接：', url, '', '价格以结算页为准；渠道佣金待平台结算，不代表已到账或可提现余额。'])
+    lines.extend(['', '🔗 领券 / 购买链接：', url, '', '价格、优惠券有效期和使用条件以购买页面为准。'])
     return '\n'.join(lines)
 
 
@@ -328,7 +354,7 @@ class State:
         self.db.execute('CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, sid TEXT, stamp REAL, title TEXT, url TEXT)')
         self.db.commit()
 
-    def allow(self, sid):
+    def allow(self, sid, limit=8):
         window = int(time.time() // 60)
         self.db.execute('BEGIN IMMEDIATE')
         try:
@@ -336,7 +362,7 @@ class State:
             count = row[1] + 1 if row and row[0] == window else 1
             self.db.execute('INSERT OR REPLACE INTO rate VALUES (?,?,?)', (sid, window, count))
             self.db.commit()
-            return count <= 8
+            return count <= limit
         except Exception:
             self.db.rollback()
             raise
@@ -345,13 +371,14 @@ class State:
         row = self.db.execute('SELECT expires,payload FROM cache WHERE cache_key=?', (key,)).fetchone()
         return json.loads(row[1]) if row and row[0] > time.time() else None
 
-    def remember(self, key, sid, data):
+    def remember(self, key, sid, data, ttl=60, save_history=True):
         now = time.time()
         with self.db:
-            self.db.execute('INSERT OR REPLACE INTO cache VALUES (?,?,?)', (key, now + 60, json.dumps(data, ensure_ascii=False)))
+            self.db.execute('INSERT OR REPLACE INTO cache VALUES (?,?,?)', (key, now + ttl, json.dumps(data, ensure_ascii=False)))
             self.db.execute('DELETE FROM cache WHERE expires < ?', (now,))
-            self.db.execute('INSERT INTO history(sid,stamp,title,url) VALUES (?,?,?,?)',
-                (sid, now, safe_text(data.get('skuName') or '京东商品'), valid_url(data.get('link'))))
+            if save_history:
+                self.db.execute('INSERT INTO history(sid,stamp,title,url) VALUES (?,?,?,?)',
+                    (sid, now, safe_text(data.get('skuName') or '京东商品'), valid_url(data.get('link'))))
             self.db.execute('DELETE FROM history WHERE sid=? AND id NOT IN (SELECT id FROM history WHERE sid=? ORDER BY id DESC LIMIT 20)', (sid, sid))
             self.db.execute('DELETE FROM history WHERE stamp < ?', (now - 30 * 86400,))
 
@@ -376,7 +403,7 @@ class Plugin:
         return self.mw.bucketGet(BUCKET, key)
 
     def api_client(self):
-        return self.client or Client(self.key, pub_id=self.setting('pub_id'))
+        return self.client or Client(self.key, timeout=self.number('request_timeout', 8, 3, 15), pub_id=self.setting('pub_id'))
 
     def admin(self):
         try:
@@ -415,85 +442,297 @@ class Plugin:
                 pass
         return False
 
+    def enabled(self, key, default=True):
+        value = self.setting(key)
+        return default if value is None or str(value).strip() == '' else str(value).lower() in ('true', '1', 'yes', 'on')
+
+    def number(self, key, default, low, high):
+        try:
+            value = float(self.setting(key))
+            return max(low, min(high, value)) if math.isfinite(value) else default
+        except (TypeError, ValueError):
+            return default
+
+    def details_allowed(self):
+        return self.admin() and self.private() and self.enabled('admin_amount')
+
+    def comparison_client(self):
+        if self.client:
+            return self.client
+        clients = {}
+        timeout = self.number('request_timeout', 8, 3, 15)
+        if self.enabled('jtk_enabled'):
+            try:
+                clients['jtk'] = self.api_client()
+            except PluginError:
+                pass
+        if self.enabled('ztk_enabled') and self.setting('ztk_key'):
+            clients['ztk'] = ZhetaokeClient(self.setting('ztk_key'), self.setting('ztk_sid'), self.setting('ztk_pid'), timeout)
+        return ComparisonClient(clients, {key: self.number(key + '_factor', 1, 0, 1) for key in ('jtk', 'ztk')},
+            self.setting('preferred_provider') or 'jtk')
+
+    def render(self, data):
+        return product_message(data) + (admin_details(data) if self.details_allowed() else '')
+
+    def cache_key(self, sid, link):
+        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
+        config = json.dumps([self.key] + [self.setting(k) for k in keys], ensure_ascii=False)
+        return hashlib.sha256((VERSION + sid + link + config).encode()).hexdigest()
+
+    def diagnostics(self, accounts=False):
+        self.identity()
+        lines = ['优惠券查询 v' + VERSION, '京东：仅聚推客；折淘客不接京东。',
+            '聚推客：' + ('已配置 Key' if self.key else '未配置 Key'),
+            '聚推客 pub_id：' + ('已配置' if self.setting('pub_id') else '未配置'),
+            '折淘客 Key：' + ('已配置' if self.setting('ztk_key') else '未配置'),
+            '折淘客授权 SID：' + ('已配置' if self.setting('ztk_sid') else '缺少'),
+            '折淘客 PID：' + ('格式有效' if re.fullmatch(r'mm_\d+_\d+_\d+', str(self.setting('ztk_pid') or '')) else '缺少或格式无效'),
+            '金额：仅管理员私聊可见，普通用户和群聊不展示。']
+        if accounts and self.setting('ztk_key'):
+            try:
+                rows = ZhetaokeClient(self.setting('ztk_key'), timeout=self.number('request_timeout',8,3,15)).accounts()
+                lines.append('折淘客授权列表：请求成功，本页 %d 个账户。' % len(rows))
+                # Do not print account tokens or auto-select somebody else's PID.
+                lines.append('请在折淘客授权管理确认有效 SID 与同账户 PID 后填入插件配置。')
+            except PluginError as error:
+                lines.append(str(error))
+        lines.append('商品验证：优惠券测试 商品链接；活动：优惠券活动 关键词')
+        return '\n'.join(lines)
+
     def handle(self, text):
         text = text.strip()
-        if text in ('返利帮助', '返利菜单', '查券帮助'):
+        aliases = {'返利帮助':'优惠券帮助','返利菜单':'优惠券菜单','查券帮助':'优惠券帮助',
+            '返利平台':'支持平台','返利精选':'优惠券精选','返利记录':'查询记录','清空返利记录':'清空查询记录',
+            '返利检测':'优惠券检测','订单查询':'返利订单'}
+        text = aliases.get(text,text)
+        if text in ('优惠券查询','优惠券帮助','优惠券菜单'):
             return HELP, ''
-        if text == '返利平台':
-            return '购物链接识别：京东、淘宝/天猫、拼多多、唯品会、考拉、抖音、快手。\n聚推客公开聚合转链接口明确列出京东、淘宝、拼多多、唯品会；其他平台交由上游解析，未开放会返回失败，不能保证每条链接都有券或佣金。\n外卖使用已配置的活动入口，不把普通店铺链接伪装成返利链接。', ''
-        if text == '返利检测':
-            if not self.admin():
-                return '此指令仅管理员可用。', ''
-            methods = [m for m in ('getImtype', 'getImType', 'getUserID', 'getChatID', 'getGroupCode', 'getMessage') if hasattr(self.sender, m)]
-            sid = self.identity()
-            client = self.api_client()
-            activities = client.activities()
-            return '✅ 返利助手 %s\n密钥认证和HTTPS活动接口正常\n活动数量：%d\n渠道标识：%s\n中间件：%s\n京东接口需另发“返利测试 京东链接”验证。' % (VERSION, len(activities), sid, ', '.join(methods)), ''
-        if text.startswith('返利活动'):
-            if not self.admin():
-                return '此指令仅管理员可用。', ''
-            keyword = text[len('返利活动'):].strip()
-            activities = self.api_client().activities()
-            matches = [x for x in activities if not keyword or keyword in str(x.get('act_name', ''))]
-            lines = ['当前活动（前20项）：'] + ['%s：%s' % (x.get('act_id'), safe_text(x.get('act_name'))) for x in matches[:20]]
-            if not matches:
-                lines.append('未找到匹配活动，试试“返利活动”查看全部。')
-            lines.append('把需要的活动ID填入插件配置；仅查询不会自动替换现有活动。')
-            return '\n'.join(lines), ''
-        if text.startswith('返利测试 ') and not self.admin():
-            return '此指令仅管理员可用。', ''
+        if text == '支持平台':
+            return '识别京东、淘宝/天猫、拼多多、唯品会、考拉、抖音、快手。\n实际可查询范围取决于已开通的接口；部分商品可能没有优惠券。\n外卖请发送“美团外卖优惠”或“淘宝闪购优惠”。', ''
+        admin_command = (text in ('优惠券检测','折淘客检测','优惠券配置','返利渠道','返利订单','我的返利订单')
+            or text.startswith(('返利活动','优惠券活动','返利测试','优惠券测试')))
+        if admin_command and (not self.admin() or not self.private()):
+            return '此指令仅管理员私聊可用。', ''
+        if text in ('优惠券检测','折淘客检测','优惠券配置'):
+            return self.diagnostics(text == '折淘客检测'), ''
+        if text.startswith(('返利活动','优惠券活动')):
+            keyword = re.sub(r'^(?:返利活动|优惠券活动)', '', text).strip()
+            rows = self.api_client().activities()
+            matches = [x for x in rows if not keyword or keyword in str(x.get('act_name',''))]
+            return '\n'.join(['当前活动（前20项）：'] + ['%s：%s' % (x.get('act_id'),safe_text(x.get('act_name'))) for x in matches[:20]]), ''
         sid = self.identity()
         if text == '返利渠道':
+            return '本人渠道标识：' + sid, ''
+        if text in ('查询记录','清空查询记录'):
             if not self.private():
-                return '渠道标识请私聊查询。', ''
-            return '本人渠道标识：%s\n仅查询通过本助手入口产生并成功归因的订单。' % sid, ''
-        if text in ('返利记录', '清空返利记录'):
-            if not self.private():
-                return '查券记录请私聊查询或清空。', ''
-            if text.startswith('清空'):
+                return '查询记录请私聊查看或清空。', ''
+            if text == '清空查询记录':
                 self.state.clear_history(sid)
-                return '已清空本人的查券记录；不会删除平台订单。', ''
+                return '已清空本人的查询记录。', ''
             rows = self.state.history(sid)
-            return ('🕘 最近成功查券：\n\n' + '\n\n'.join('%s\n%s' % row for row in rows)) if rows else '暂无查券记录。', ''
-        if not self.state.allow(sid):
-            return '查询较频繁，请一分钟后再试（每分钟最多8次）。', ''
-        client = self.api_client()
-        if text == '返利精选':
-            rows = client.featured(sid)
-            return '\n\n'.join(product_message(item) for item in rows) if rows else '暂无可推广精选商品。', ''
-        if text in ('返利订单', '我的返利订单'):
-            if not self.private():
-                return '订单包含个人消费信息，请私聊发送“返利订单”。', ''
-            rows = client.orders(sid)
+            return ('最近成功查询：\n\n' + '\n\n'.join('%s\n%s' % (public_text(title),url) for title,url in rows)) if rows else '暂无查询记录。', ''
+        if text in ('返利订单','我的返利订单'):
+            rows = self.api_client().orders(sid)
             if not rows:
-                return '最近1小时暂无本人已归因订单。平台跟单可能延迟；更早记录请联系管理员在聚推客后台核对。', ''
-            statuses = {0: '未付款', 1: '已付款', 2: '待结算', 3: '已结算', 4: '无效'}
-            lines = ['🧾 最近1小时本人订单（最多10条）：']
-            for row in rows:
-                lines.append('%s\n尾号%s · %s\n渠道预估佣金 ¥%s' % (safe_text(row.get('order_title') or row.get('act_name'), 70),
-                    str(row.get('order_sn', ''))[-6:], statuses.get(int(row.get('status', -1)), '未知'), amount(row.get('jtk_share_fee')) or '待确认'))
-            lines.append('这是渠道佣金明细，不代表个人可提现余额。')
-            return '\n\n'.join(lines), ''
-        if text in ('美团外卖优惠', '淘宝闪购优惠'):
-            setting = 'mt_act_id' if text == '美团外卖优惠' else 'ele_act_id'
-            activity_id = str(self.setting(setting) or '').strip()
+                return '最近1小时暂无本人订单。此处仅查询聚推客订单；折淘客订单请在其后台查看。', ''
+            return '\n\n'.join('订单尾号 %s\n%s\n预估返利金额：¥%s' % (str(x.get('order_sn',''))[-6:],
+                safe_text(x.get('order_title') or x.get('act_name')),amount(x.get('jtk_share_fee')) or '未知') for x in rows), ''
+        if not self.private() and not self.enabled('group_query'):
+            return '请私聊发送商品链接查询优惠券。', ''
+        limit = int(self.number('rate_limit',8,1,30))
+        if not self.state.allow(sid, limit):
+            return '查询较频繁，请一分钟后再试。', ''
+        if text == '优惠券精选':
+            rows = self.api_client().featured(sid)
+            # Convert each curated item's link through the same comparison path.
+            results = []
+            for item in rows:
+                try:
+                    results.append(self.comparison_client().goods(item['link'],sid))
+                except PluginError:
+                    results.append(item)
+            return '\n\n'.join(self.render(item) for item in results) if results else '暂无精选商品。', ''
+        if text in ('美团外卖优惠','淘宝闪购优惠'):
+            activity_id = str(self.setting('mt_act_id' if text == '美团外卖优惠' else 'ele_act_id') or '').strip()
             if not activity_id:
-                return '管理员尚未选择此活动，请先用“返利活动”查询并配置活动ID。', ''
-            return client.activity(activity_id, sid), ''
+                return '此优惠入口暂未配置，请联系管理员。', ''
+            return self.api_client().activity(activity_id,sid), ''
         link = extract_link(text)
-        cache_key = hashlib.sha256((sid + ':' + link).encode()).hexdigest()
-        data = self.state.cached(cache_key)
+        allowed = str(self.setting('allowed_platforms') or '').strip()
+        if allowed and platform_of(link) not in {x.strip() for x in allowed.split(',')}:
+            return '该平台暂未开放查询。', ''
+        cache_key = self.cache_key(sid, link)
+        ttl = self.number('cache_seconds',60,0,600)
+        data = self.state.cached(cache_key) if ttl else None
         if data is None:
-            data = client.goods(link, sid)
-            self.state.remember(cache_key, sid, data)
-        send_image = str(self.setting('send_image')).lower() in ('true', '1')
-        return product_message(data), product_image(data) if send_image else ''
+            data = self.comparison_client().goods(link,sid)
+            self.state.remember(cache_key,sid,data,ttl,self.enabled('history_enabled'))
+        image = product_image(data) if self.enabled('send_image',False) else ''
+        return self.render(data), image
+
+
+
+ZTK_API = 'https://api.zhetaoke.com:10001/api/'
+PROVIDERS = {'jtk': '聚推客', 'ztk': '折淘客'}
+
+
+def public_text(value, limit=160):
+    text = safe_text(value, limit)
+    return re.sub(r'返利|返佣|佣金|计佣|推广|渠道|聚推客|折淘客', '优惠', text)
+
+
+class ZhetaokeClient:
+    """Official HTTPS batch converter; JD deliberately excluded."""
+    def __init__(self, key, sid='', pid='', timeout=8, transport=None):
+        self.key, self.sid, self.pid = key, sid, pid
+        self.timeout, self.transport = timeout, transport
+
+    def request(self, endpoint, fields):
+        if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx'):
+            raise PluginError('折淘客接口不在允许列表。')
+        if not self.key:
+            raise PluginError('折淘客未配置 Key。')
+        params = dict(fields, appkey=self.key)
+        if self.transport:
+            result = self.transport(endpoint, params)
+        else:
+            req = urllib.request.Request(ZTK_API + endpoint,
+                data=urllib.parse.urlencode(params).encode(),
+                headers={'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'CouponQuery/2.0'})
+            try:
+                opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+                with opener.open(req, timeout=self.timeout) as response:
+                    body = response.read(2 * 1024 * 1024 + 1)
+                if len(body) > 2 * 1024 * 1024:
+                    raise PluginError('折淘客响应超过大小限制。')
+                result = json.loads(body.decode('utf-8-sig'))
+            except (urllib.error.URLError, OSError, ValueError):
+                raise PluginError('折淘客 HTTPS 请求失败或超时。') from None
+        if not isinstance(result, dict) or str(result.get('status')) != '200':
+            # Upstream errors sometimes echo request credentials; never forward them.
+            raise PluginError('折淘客未返回成功状态，请检查 Key、授权、PID 或商品权限。')
+        return result
+
+    def accounts(self):
+        rows = self.request('open_taokeshouquaninfo.ashx', {'page': '1'}).get('data')
+        return rows if isinstance(rows, list) else []
+
+    def goods(self, link, user_sid):
+        source = platform_of(link)
+        if source not in ('taobao', 'pdd', 'vip'):
+            raise PluginError('折淘客此适配器仅接淘宝/天猫、拼多多、唯品会；京东不接入。')
+        if not self.sid or not re.fullmatch(r'mm_\d+_\d+_\d+', str(self.pid)):
+            raise PluginError('折淘客缺少授权 SID 或有效 PID（mm_三段格式）。')
+        fields = {'sid': self.sid, 'pid': self.pid, 'tkl': link}
+        if source == 'pdd':
+            fields['custom_parameters'] = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
+        if source == 'vip':
+            fields['chanTag'] = user_sid
+        result = self.request('open_gaoyongzhuanlian_tkl_piliang.ashx', fields)
+        mapped = {'1': 'taobao', '3': 'pdd', '5': 'vip'}.get(str(result.get('plat')))
+        url = valid_url(result.get('result_url'))
+        if mapped != source or not url:
+            raise PluginError('折淘客未返回匹配平台的有效商品链接。')
+        coupon = amount(result.get('coupon_info_money'))
+        has_coupon = str(result.get('is_youquan')) == '1' and coupon is not None and Decimal(coupon) > 0
+        return {'skuName': result.get('tao_title') or result.get('title'), 'link': url,
+            '_source': source, '_provider': 'ztk', '_product_id': str(result.get('tao_id') or ''),
+            '_commission': amount(result.get('tkfee3')), 'is_coupon': int(has_coupon),
+            'couponInfo': [{'discount': coupon}] if has_coupon else [],
+            'priceInfo': {'lowestPrice': result.get('size'), 'lowestCouponPrice': result.get('quanhou_jiage')},
+            'shopInfo': {'shopName': result.get('nick')},
+            'imageInfo': {'imageList': [{'url': result.get('pic')}]}}
+
+
+def comparable(one, two):
+    if one.get('_source') != two.get('_source'):
+        return False
+    # IDs can use different opaque formats between vendors. Exact public product IDs
+    # are strongest; otherwise require identical title, shop and buyer price.
+    a, b = one.get('_product_id'), two.get('_product_id')
+    if a and b and a == b:
+        return True
+    if a and b and str(a).isdigit() and str(b).isdigit():
+        return False
+    title = lambda d: re.sub(r'\s+', '', safe_text(d.get('skuName')))
+    shop = lambda d: safe_text((d.get('shopInfo') or {}).get('shopName'))
+    price = lambda d: amount((d.get('priceInfo') or {}).get('lowestCouponPrice'))
+    return bool(title(one) and title(one) == title(two) and shop(one) and shop(one) == shop(two)
+        and price(one) is not None and price(one) == price(two))
+
+
+def select_result(candidates, errors=None, factors=None, preferred='jtk'):
+    if not candidates:
+        detail = '；'.join(PROVIDERS.get(k,k) + '：' + safe_text(v,140) for k,v in (errors or {}).items())
+        raise PluginError('暂未查询到可用优惠。' + detail)
+    factors = factors or {}
+    ordered = sorted(candidates, key=lambda x: x.get('_provider') != preferred)
+    base = ordered[0]
+    eligible = [x for x in ordered if comparable(base, x) or x is base]
+    def commission(item):
+        value = amount(item.get('_commission'))
+        if value is None:
+            return None
+        return Decimal(value) * Decimal(str(factors.get(item.get('_provider'), 1)))
+    known = [x for x in eligible if commission(x) is not None]
+    # Unknown is not zero. If a provider omits amount, preserve deterministic priority
+    # and explicitly report incomplete comparison to the administrator.
+    complete = len(eligible) == len(ordered) and len(known) == len(eligible)
+    selected = max(known, key=commission) if complete and known else base
+    result = dict(selected)
+    result['_comparison'] = [{'provider': x.get('_provider', 'jtk'), 'amount': amount(x.get('_commission')),
+        'adjusted': str(commission(x)) if commission(x) is not None else None,
+        'comparable': x in eligible} for x in ordered]
+    result['_errors'] = dict(errors or {})
+    result['_selection'] = ('已比较同商品预估金额' if complete and len(known) > 1
+        else '仅一个有效结果' if len(ordered) == 1 else '商品或金额信息不足，按接口优先级选择')
+    return result
+
+
+class ComparisonClient:
+    def __init__(self, clients, factors=None, preferred='jtk'):
+        self.clients, self.factors, self.preferred = clients, factors or {}, preferred
+
+    def goods(self, link, sid):
+        candidates, errors = [], {}
+        clients = {k: v for k, v in self.clients.items()
+            if k != 'ztk' or platform_of(link) in ('taobao', 'pdd', 'vip')}
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = {k: pool.submit(v.goods, link, sid) for k, v in clients.items()}
+            for name, future in futures.items():
+                try:
+                    item = dict(future.result())
+                    if not valid_url(item.get('link')):
+                        raise PluginError('未返回有效商品链接。')
+                    item['_provider'] = name
+                    candidates.append(item)
+                except PluginError as error:
+                    errors[name] = str(error)
+                except Exception:
+                    errors[name] = '接口返回异常。'
+        return select_result(candidates, errors, self.factors, self.preferred)
+
+
+def admin_details(data):
+    selected = PROVIDERS.get(data.get('_provider'), '聚推客')
+    lines = ['', '【管理员】', '选择接口：' + selected,
+        '预估返利金额：' + ('¥' + amount(data.get('_commission')) if amount(data.get('_commission')) is not None else '未提供'),
+        '选择依据：' + data.get('_selection', '单接口结果')]
+    for row in data.get('_comparison', []):
+        lines.append('%s：%s%s' % (PROVIDERS.get(row['provider'], row['provider']),
+            '¥' + row['amount'] if row['amount'] is not None else '金额未知',
+            '；调整后¥' + format(Decimal(row['adjusted']), '.2f') if row.get('adjusted') is not None else ''))
+    for name, error in data.get('_errors', {}).items():
+        lines.append('%s：%s' % (PROVIDERS.get(name, name), safe_text(error, 140)))
+    lines.append('金额为平台预估，非已结算；税费及实际订单以平台为准。')
+    return '\n'.join(lines)
 
 
 def main():
     import middleware
     sender = middleware.Sender(middleware.getSenderID())
     state = None
+    plugin = None
     try:
         state = State(Path(__file__).resolve().parent / '.jtk_coupon' / 'state.sqlite3')
         plugin = Plugin(sender, middleware, state)
@@ -505,9 +744,9 @@ def main():
             except Exception:
                 pass  # Text reply already delivered; image failure must not duplicate the response.
     except PluginError as error:
-        sender.reply('⚠️ ' + str(error))
+        sender.reply('⚠️ ' + (str(error) if plugin and plugin.admin() and plugin.private() else '暂未查询到可用优惠，请稍后重试或更换商品链接。'))
     except Exception:
-        sender.reply('⚠️ 返利助手处理失败，请管理员检查插件运行环境与数据目录权限。')
+        sender.reply('⚠️ 优惠券查询暂时不可用，请联系管理员。')
     finally:
         if state:
             state.close()
