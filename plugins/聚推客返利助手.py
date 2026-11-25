@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.0]
+# [version: 2.0.1]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -14,6 +14,7 @@
 # [param: {"required":false,"key":"jtk_coupon.ztk_key","bool":false,"name":"折淘客 AppKey","desc":"折淘客对接密钥；不写进源码。仅 Key 不足以完成转链，还需授权 SID、PID。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_sid","bool":false,"name":"折淘客授权 SID","desc":"授权管理中的淘客账号授权 ID，不是用户标识；淘宝、拼多多、唯品会批量转链接口需要。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_pid","bool":false,"name":"折淘客 PID","desc":"与授权账户一致的 mm_数字_数字_数字；未配置时折淘客失败不会影响聚推客结果。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_relation_id","bool":false,"name":"折淘客淘宝渠道关系 ID","desc":"可选；授权类型要求渠道关系 ID 时填写已备案的 relation_id，不可随意编造。留空不传。"}]
 # [param: {"required":false,"key":"jtk_coupon.jtk_enabled","bool":false,"name":"启用聚推客","desc":"留空默认开启；填 false 可关闭。提供京东与其他已开通平台查询。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_enabled","bool":false,"name":"启用折淘客","desc":"留空且已配置 Key 时默认开启；填 false 可关闭。京东始终不会发送至折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.preferred_provider","bool":false,"name":"信息不足时优先接口","desc":"jtk（默认）或 ztk；只有同商品且两家金额均已知时，才按最高金额选择。"}]
@@ -53,7 +54,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.0'
+VERSION = '2.0.1'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -467,7 +468,8 @@ class Plugin:
             except PluginError:
                 pass
         if self.enabled('ztk_enabled') and self.setting('ztk_key'):
-            clients['ztk'] = ZhetaokeClient(self.setting('ztk_key'), self.setting('ztk_sid'), self.setting('ztk_pid'), timeout)
+            clients['ztk'] = ZhetaokeClient(self.setting('ztk_key'), self.setting('ztk_sid'), self.setting('ztk_pid'), timeout,
+                relation_id=self.setting('ztk_relation_id'))
         return ComparisonClient(clients, {key: self.number(key + '_factor', 1, 0, 1) for key in ('jtk', 'ztk')},
             self.setting('preferred_provider') or 'jtk')
 
@@ -475,7 +477,7 @@ class Plugin:
         return product_message(data) + (admin_details(data) if self.details_allowed() else '')
 
     def cache_key(self, sid, link):
-        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
+        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
         config = json.dumps([self.key] + [self.setting(k) for k in keys], ensure_ascii=False)
         return hashlib.sha256((VERSION + sid + link + config).encode()).hexdigest()
 
@@ -583,9 +585,10 @@ def public_text(value, limit=160):
 
 class ZhetaokeClient:
     """Official HTTPS batch converter; JD deliberately excluded."""
-    def __init__(self, key, sid='', pid='', timeout=8, transport=None):
+    def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id=''):
         self.key, self.sid, self.pid = key, sid, pid
         self.timeout, self.transport = timeout, transport
+        self.relation_id = str(relation_id or '').strip()
 
     def request(self, endpoint, fields):
         if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx'):
@@ -626,8 +629,8 @@ class ZhetaokeClient:
         fields = {'sid': self.sid, 'pid': self.pid, 'tkl': link}
         if source == 'pdd':
             fields['custom_parameters'] = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
-        if source == 'vip':
-            fields['chanTag'] = user_sid
+        if source == 'taobao' and self.relation_id:
+            fields['relation_id'] = self.relation_id
         result = self.request('open_gaoyongzhuanlian_tkl_piliang.ashx', fields)
         mapped = {'1': 'taobao', '3': 'pdd', '5': 'vip'}.get(str(result.get('plat')))
         url = valid_url(result.get('result_url'))

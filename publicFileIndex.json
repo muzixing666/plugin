@@ -69,7 +69,7 @@
     "title": "优惠券查询",
     "type": "python",
     "path": "plugins/聚推客返利助手.py",
-    "version": "v2.0.0",
+    "version": "v2.0.1",
     "desc": "发送购物链接查询优惠券、商品信息和购买入口；支持精选商品、外卖优惠和个人查询记录。",
     "rule": "(?i)https?://[^\\s]*(?:jd\\.com|3\\.cn|jingxi\\.com|taobao\\.com|tmall\\.com|tb\\.cn|tb\\.com|pinduoduo\\.com|yangkeduo\\.com|pdd\\.cn|vip\\.com|kaola\\.com|douyin\\.com|iesdouyin\\.com|jinritemai\\.com|kuaishou\\.com|gifshow\\.com|kwaixiaodian\\.com)[^\\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|订单查询|优惠券活动(?:\\s+\\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\\s+.+$|^优惠券测试\\s+.+$",
     "icon": "https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg",

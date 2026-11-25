@@ -311,6 +311,21 @@ class Tests(unittest.TestCase):
         client=p.ZhetaokeClient('k','s','mm_1_2_3',transport=lambda *args:{'status':200,'plat':2,'result_url':'https://u.jd.com/a'})
         with self.assertRaises(p.PluginError):client.goods('https://item.taobao.com/item.htm?id=123','sid')
 
+    def test_ztk_never_fabricates_vip_pid_or_taobao_relation_id(self):
+        calls=[]
+        def request(endpoint,params):
+            calls.append(params)
+            return {'status':200,'plat':5 if 'vip.com' in params['tkl'] else 1,
+                'result_url':'https://m.vip.com/test','tao_id':'123'}
+        client=p.ZhetaokeClient('k','sid','mm_1_2_3',transport=request)
+        client.goods('https://m.vip.com/product-123.html','user-hmac')
+        self.assertNotIn('chanTag',calls[-1])
+        client.goods('https://item.taobao.com/item.htm?id=123','user-hmac')
+        self.assertNotIn('relation_id',calls[-1])
+        client.relation_id='registered-channel'
+        client.goods('https://item.taobao.com/item.htm?id=123','user-hmac')
+        self.assertEqual(calls[-1]['relation_id'],'registered-channel')
+
     def test_generic_error_does_not_expose_credentials_in_main(self):
         import sys,types
         sender=Sender()
