@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 1.1.0]
+# [version: 1.1.1]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -37,7 +37,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '1.1.0'
+VERSION = '1.1.1'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -163,6 +163,10 @@ class Client:
             message = safe_text(result.get('msg') or result.get('message') or '未返回成功状态', 100)
             message = message.replace(self.key, '***')
             message = re.sub(r'https?://\S+', '[接口地址]', message)
+            if path == '/union/orders' and any(term in message for term in ('对应条件内无数据', '暂无订单', '无订单数据')):
+                return {'data': [], 'last_page': 0}
+            if path == '/union/wn_convert' and '没有匹配到合适的商品' in message:
+                raise PluginError('此链接暂未匹配到可推广商品。请换一条有效商品分享链接；不是每件商品都有券或返利。')
             raise PluginError('聚推客：%s（请管理员确认密钥及业务权限）。' % message)
         return result.get('data')
 
@@ -376,7 +380,8 @@ class Plugin:
 
     def admin(self):
         try:
-            return bool(self.sender.isAdmin())
+            value = self.sender.isAdmin()
+            return value is True or str(value).lower() in ('true', '1')
         except Exception:
             return False
 

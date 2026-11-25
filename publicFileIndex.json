@@ -69,7 +69,7 @@
     "title": "聚推客返利助手",
     "type": "python",
     "path": "plugins/聚推客返利助手.py",
-    "version": "v1.1.0",
+    "version": "v1.1.1",
     "desc": "多平台购物链接查券与转链，回复商品、价格、优惠券和推广链接；含外卖活动、精选商品、本人订单与查券记录。上游未开放的平台明确提示失败。",
     "rule": "(?i)https?://[^\\s]*(?:jd\\.com|3\\.cn|jingxi\\.com|taobao\\.com|tmall\\.com|tb\\.cn|tb\\.com|pinduoduo\\.com|yangkeduo\\.com|pdd\\.cn|vip\\.com|kaola\\.com|douyin\\.com|iesdouyin\\.com|jinritemai\\.com|kuaishou\\.com|gifshow\\.com|kwaixiaodian\\.com)[^\\s]*|^(?:返利帮助|返利菜单|查券帮助|返利平台|返利精选|返利检测|返利活动(?:\\s+\\S+)?|返利订单|我的返利订单|返利渠道|美团外卖优惠|淘宝闪购优惠|返利记录|清空返利记录)$|^查券\\s+.+$|^返利测试\\s+.+$",
     "icon": "https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg",

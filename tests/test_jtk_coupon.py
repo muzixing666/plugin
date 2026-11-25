@@ -176,6 +176,13 @@ class Tests(unittest.TestCase):
                 p.Client('key',pub_id='pub',transport=transport).goods('https://'+domains[0]+'/item','stable')
                 self.assertEqual(calls[-1]['sid'],'stable')
                 self.assertEqual(calls[-1]['source'],source)
+    def test_upstream_no_orders_is_a_normal_empty_result(self):
+        client=p.Client('key',transport=lambda *args:{'code':0,'msg':'【对应条件内无数据】'})
+        self.assertEqual(client.orders('sid'),[])
+    def test_false_string_is_not_administrator_permission(self):
+        sender=Sender()
+        sender.isAdmin=lambda:'false'
+        self.assertFalse(p.Plugin(sender,self.mw,self.state).admin())
 
 
 if __name__ == '__main__':
