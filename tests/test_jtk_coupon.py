@@ -307,6 +307,14 @@ class Tests(unittest.TestCase):
         self.assertNotIn('secret-key',str(caught.exception))
         self.assertNotIn('account-token',str(caught.exception))
 
+    def test_ztk_empty_product_is_not_a_zero_price_success(self):
+        for title in ('', '0'):
+            client=p.ZhetaokeClient('k','s','mm_1_2_3',transport=lambda *args:{
+                'status':200,'plat':1,'tao_id':'123','title':title,'size':'0','tkfee3':'0',
+                'result_url':'https://item.taobao.com/item.htm?id=123&ali_trackid=sample'})
+            with self.assertRaises(p.PluginError):
+                client.goods('https://item.taobao.com/item.htm?id=123','sid')
+
     def test_ztk_platform_mismatch(self):
         client=p.ZhetaokeClient('k','s','mm_1_2_3',transport=lambda *args:{'status':200,'plat':2,'result_url':'https://u.jd.com/a'})
         with self.assertRaises(p.PluginError):client.goods('https://item.taobao.com/item.htm?id=123','sid')
@@ -316,7 +324,7 @@ class Tests(unittest.TestCase):
         def request(endpoint,params):
             calls.append(params)
             return {'status':200,'plat':5 if 'vip.com' in params['tkl'] else 1,
-                'result_url':'https://m.vip.com/test','tao_id':'123'}
+                'result_url':'https://m.vip.com/test','tao_id':'123','title':'商品'}
         client=p.ZhetaokeClient('k','sid','mm_1_2_3',transport=request)
         client.goods('https://m.vip.com/product-123.html','user-hmac')
         self.assertNotIn('chanTag',calls[-1])

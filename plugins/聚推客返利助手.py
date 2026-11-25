@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.1]
+# [version: 2.0.2]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -54,7 +54,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.1'
+VERSION = '2.0.2'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -636,6 +636,9 @@ class ZhetaokeClient:
         url = valid_url(result.get('result_url'))
         if mapped != source or not url:
             raise PluginError('折淘客未返回匹配平台的有效商品链接。')
+        title = safe_text(result.get('tao_title') or result.get('title'))
+        if not title or title == '0':
+            raise PluginError('折淘客未返回有效商品详情，无法确认此商品的优惠和金额，请更换在售商品链接。')
         coupon = amount(result.get('coupon_info_money'))
         has_coupon = str(result.get('is_youquan')) == '1' and coupon is not None and Decimal(coupon) > 0
         return {'skuName': result.get('tao_title') or result.get('title'), 'link': url,
