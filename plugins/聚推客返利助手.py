@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.5]
+# [version: 2.0.6]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -59,7 +59,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.5'
+VERSION = '2.0.6'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -654,6 +654,26 @@ def public_text(value, limit=160):
     return re.sub(r'返利|返佣|佣金|计佣|推广|渠道|聚推客|折淘客', '优惠', text)
 
 
+def pdd_error(result):
+    details = result if isinstance(result, dict) else {}
+    response = details.get('error_response')
+    if isinstance(response, dict):
+        details = response
+    code = str(details.get('error_code') or details.get('sub_code') or details.get('status') or '')
+    code = code if re.fullmatch(r'[0-9]{1,10}', code) else ''
+    message = ' '.join(str(details.get(key) or '') for key in ('error_msg', 'sub_msg', 'msg', 'message', 'content'))
+    # Use fixed hints only. The upstream response may contain configuration values.
+    hints = (
+        (('关联应用', '关联对应'), '请检查多多进宝的应用关联。'),
+        (('未备案', '授权备案', '未授权'), '请检查应用与推广位的授权备案。'),
+        (('appkey', 'appsecret', '密钥'), '请检查折淘客 Key 和拼多多应用凭证。'),
+        (('推广位', 'pid'), '请检查拼多多推广位与应用的配置。'),
+        (('商品', '链接'), '请检查商品状态和推广权限。'),
+    )
+    hint = next((text for words, text in hints if any(word in message.lower() for word in words)), '')
+    return '折淘客拼多多拒绝转链' + ('（错误码 ' + code + '）' if code else '') + '。' + hint
+
+
 class ZhetaokeClient:
     """Official HTTPS batch converter; JD deliberately excluded."""
     def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id='',
@@ -694,11 +714,21 @@ class ZhetaokeClient:
                 if len(body) > 2 * 1024 * 1024:
                     raise PluginError('折淘客响应超过大小限制。')
                 result = json.loads(body.decode('utf-8-sig'))
-            except (urllib.error.URLError, OSError, ValueError):
-                raise PluginError('折淘客 HTTPS 请求失败或超时。') from None
-        if endpoint == 'open_pdd_zhuanlian_new.ashx' and isinstance(result, dict):
-            if isinstance(result.get('goods_zs_unit_generate_response'), dict):
+            except urllib.error.HTTPError as error:
+                raise PluginError('折淘客 HTTP %s。' % error.code) from None
+            except (TimeoutError, urllib.error.URLError, OSError) as error:
+                reason = getattr(error, 'reason', error)
+                if isinstance(reason, TimeoutError):
+                    raise PluginError('折淘客 HTTPS 请求超时。') from None
+                if isinstance(reason, ssl.SSLCertVerificationError):
+                    raise PluginError('折淘客 HTTPS 证书验证失败。') from None
+                raise PluginError('折淘客 HTTPS 连接失败。') from None
+            except ValueError:
+                raise PluginError('折淘客返回的数据无法解析为 JSON。') from None
+        if endpoint == 'open_pdd_zhuanlian_new.ashx':
+            if isinstance(result, dict) and isinstance(result.get('goods_zs_unit_generate_response'), dict):
                 return result
+            raise PluginError(pdd_error(result))
         if isinstance(result, dict) and (
             (endpoint == 'open_douyin_zhuanlian.ashx' and str(result.get('code')) == '10000')
             or (endpoint == 'open_kaola_zhuanke_api_zhuanlian.ashx' and str(result.get('code')) == '200')
@@ -750,8 +780,11 @@ class ZhetaokeClient:
         if not (self.pdd_client_id and self.pdd_client_secret and re.fullmatch(r'\d+_\d+', self.pdd_pid)):
             raise PluginError('请配置拼多多应用 ID、密钥及已备案的拼多多 PID。')
         custom = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
+        parts = urllib.parse.urlsplit(link)
+        goods_ids = urllib.parse.parse_qs(parts.query, keep_blank_values=True).get('goods_id', [])
+        content = goods_ids[0] if len(goods_ids) == 1 and re.fullmatch(r'[0-9]{6,20}', goods_ids[0]) else link
         fields = {'pdd_app_key': self.pdd_client_id, 'pdd_app_secret': self.pdd_client_secret,
-            'pid': self.pdd_pid, 'content': link}
+            'pid': self.pdd_pid, 'content': content}
         if len(custom.encode()) <= 64:
             fields['custom_parameters'] = custom
         result = self.request('open_pdd_zhuanlian_new.ashx', fields)
