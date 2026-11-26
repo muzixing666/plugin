@@ -2,12 +2,12 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.1.4]
+# [version: 2.1.5]
 # [public: true]
 # [open_source: true]
 # [disable: false]
 # [priority: 100]
-# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)\s*$|^(?s:(?:.*[^A-Za-z0-9])?(?:₴[A-Za-z0-9]{5,40}₴|[A-Za-z0-9]{5,40}[ηƞ]{2})(?:[^A-Za-z0-9].*)?)$|^(?:查券\s+)?抖音口令[：:\s]+(?s:\S.*)$]
+# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)\s*$|^(?s:(?:.*[^A-Za-z0-9])?(?:₴[A-Za-z0-9]{5,40}₴|##[A-Za-z0-9]{5,40}##|[A-Za-z0-9]{5,40}[ηƞ]{2})(?:[^A-Za-z0-9].*)?)$|^(?:查券\s+)?抖音口令[：:\s]+(?s:\S.*)$]
 # [description: 发送购物链接，一键查询商品信息和优惠券，获取领券购买入口。支持识别淘宝／天猫、京东、拼多多、唯品会、抖音、快手、考拉海购链接，另有美团外卖和淘宝闪购优惠入口。]
 # [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
@@ -60,7 +60,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.1.4'
+VERSION = '2.1.5'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -126,7 +126,7 @@ def platform_of(value):
 
 TAOBAO_PASSWORD = re.compile(r'(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)')
 TAOBAO_BRACKET_PASSWORD = re.compile(r'(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)')
-DOUYIN_PASSWORD = re.compile(r'₴[A-Za-z0-9]{5,40}₴|(?<![A-Za-z0-9])[A-Za-z0-9]{5,40}[ηƞ]{2}(?![A-Za-z0-9])')
+DOUYIN_PASSWORD = re.compile(r'₴[A-Za-z0-9]{5,40}₴|##[A-Za-z0-9]{5,40}##|(?<![A-Za-z0-9])[A-Za-z0-9]{5,40}[ηƞ]{2}(?![A-Za-z0-9])')
 DOUYIN_PREFIX = '抖音口令：'
 
 
@@ -708,6 +708,26 @@ def pdd_error(result):
     return '折淘客拼多多拒绝转链' + ('（错误码 ' + code + '）' if code else '') + '。' + hint
 
 
+def douyin_error(result):
+    if not isinstance(result, dict):
+        return '折淘客未返回抖音有效响应。'
+    codes = []
+    for key in ('code', 'sub_code', 'status'):
+        code = str(result.get(key) or '')
+        if re.fullmatch(r'[0-9]{1,10}', code) and code not in codes:
+            codes.append(code)
+    message = ' '.join(str(result.get(key) or '') for key in ('msg', 'sub_msg', 'message', 'content')).lower()
+    if 'sid' in message or '授权' in message or 'token' in message:
+        hint = '请核对抖音授权 SID 和授权有效期。'
+    elif '口令' in message or 'command' in message:
+        hint = '接口提示口令无效或无法识别。'
+    elif '商品' in message:
+        hint = '请核对商品的推广资格。'
+    else:
+        hint = ''
+    return '折淘客未返回抖音成功状态' + ('（错误码 ' + '/'.join(codes) + '）' if codes else '') + '。' + hint
+
+
 class ZhetaokeClient:
     """Official HTTPS batch converter; JD deliberately excluded."""
     def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id='',
@@ -778,6 +798,8 @@ class ZhetaokeClient:
             or (endpoint == 'open_kaola_zhuanke_api_zhuanlian.ashx' and str(result.get('code')) == '200')
         ):
             return result
+        if endpoint in ('open_douyin_zhuanlian.ashx', 'open_douyin_kouling_jiexi.ashx'):
+            raise PluginError(douyin_error(result))
         if not isinstance(result, dict) or str(result.get('status')) != '200':
             # Upstream errors sometimes echo request credentials; never forward them.
             raise PluginError('折淘客未返回成功状态，请检查 Key、授权、PID 或商品权限。')
@@ -894,13 +916,13 @@ class ZhetaokeClient:
             try:
                 result = self.request('open_douyin_zhuanlian.ashx', fields)
             except PluginError as direct_error:
-                if valid_url(link) or not str(direct_error).startswith('折淘客未返回成功状态'):
+                if valid_url(link) or not str(direct_error).startswith('折淘客未返回抖音成功状态'):
                     raise
                 try:
                     product_url = self.douyin_product_link(command)
                     result = self.request('open_douyin_zhuanlian.ashx', dict(fields, product_url=product_url))
                 except PluginError as fallback_error:
-                    raise PluginError('抖音口令直转未成功；解析兜底：' + str(fallback_error)) from None
+                    raise PluginError('抖音直转：%s；解析兜底：%s' % (direct_error, fallback_error)) from None
             outer = result.get('data')
             row = outer.get('data') if isinstance(outer, dict) else None
             row = row if isinstance(row, dict) else {}
