@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.2]
+# [version: 2.0.3]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -12,8 +12,13 @@
 # [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_key","bool":false,"name":"折淘客 AppKey","desc":"折淘客对接密钥；不写进源码。仅 Key 不足以完成转链，还需授权 SID、PID。"}]
-# [param: {"required":false,"key":"jtk_coupon.ztk_sid","bool":false,"name":"折淘客授权 SID","desc":"授权管理中的淘客账号授权 ID，不是用户标识；淘宝、拼多多、唯品会批量转链接口需要。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_sid","bool":false,"name":"折淘客授权 SID","desc":"授权管理中的淘客账号授权 ID，不是用户标识；淘宝、唯品会批量转链接口需要。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_pid","bool":false,"name":"折淘客 PID","desc":"与授权账户一致的 mm_数字_数字_数字；未配置时折淘客失败不会影响聚推客结果。"}]
+# [param: {"required":false,"key":"jtk_coupon.pdd_client_id","bool":false,"name":"拼多多应用 Client ID","desc":"折淘客拼多多专用转链所用应用 ID，需在多多进宝关联应用。"}]
+# [param: {"required":false,"key":"jtk_coupon.pdd_client_secret","bool":false,"name":"拼多多应用 Client Secret","desc":"折淘客拼多多专用转链所用密钥；只填面板配置，启用后经 HTTPS 发送至折淘客。"}]
+# [param: {"required":false,"key":"jtk_coupon.pdd_pid","bool":false,"name":"拼多多推广位 PID","desc":"数字_数字格式，使用已完成授权备案的推广位；专用接口需同时配置折淘客 Key、应用 ID 和密钥。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_douyin_sid","bool":false,"name":"折淘客抖音授权 SID","desc":"折淘客中已授权的抖音账号对应 SID，留空跳过抖音转链。"}]
+# [param: {"required":false,"key":"jtk_coupon.ztk_kaola_sid","bool":false,"name":"折淘客考拉授权 SID","desc":"折淘客中已授权的考拉账号对应 SID，留空跳过考拉转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_relation_id","bool":false,"name":"折淘客淘宝渠道关系 ID","desc":"可选；授权类型要求渠道关系 ID 时填写已备案的 relation_id，不可随意编造。留空不传。"}]
 # [param: {"required":false,"key":"jtk_coupon.jtk_enabled","bool":false,"name":"启用聚推客","desc":"留空默认开启；填 false 可关闭。提供京东与其他已开通平台查询。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_enabled","bool":false,"name":"启用折淘客","desc":"留空且已配置 Key 时默认开启；填 false 可关闭。京东始终不会发送至折淘客。"}]
@@ -54,13 +59,13 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.2'
+VERSION = '2.0.3'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
 HELP = """🛍 优惠券查询
 直接发送购物链接，或：查券 链接
-返回商品名称、店铺、优惠券、参考价格和领券购买入口。
+返回商品、价格、优惠券和购买链接。平台提供口令时会一并返回。
 
 🛒 优惠券精选：查看当前精选商品
 🍱 美团外卖优惠 / 淘宝闪购优惠
@@ -283,6 +288,44 @@ class Client:
         return [x for x in data['data'] if str(x.get('sid', '')) == sid][:10]
 
 
+def usable_coupon(data):
+    if str(data.get('is_coupon')) != '1':
+        return None
+    coupons = data.get('couponInfo') or []
+    if isinstance(coupons, dict):
+        coupons = [coupons]
+    now_ms = time.time() * 1000
+    for coupon in coupons if isinstance(coupons, list) else []:
+        if not isinstance(coupon, dict) or str(coupon.get('yn', '1')) == '0':
+            continue
+        discount = amount(coupon.get('discount'))
+        if discount is None or Decimal(discount) <= 0:
+            continue
+        begin, end = coupon.get('takeBeginTime'), coupon.get('takeEndTime')
+        try:
+            if begin is not None and float(begin) > now_ms:
+                continue
+            if end is not None and float(end) < now_ms:
+                continue
+        except (TypeError, ValueError):
+            continue
+        return coupon, discount
+
+
+def append_password(lines, data):
+    password = data.get('_password')
+    if not isinstance(password, str):
+        return
+    douyin_command = data.get('_source') == 'douyin' and re.fullmatch(
+        r'[\u3400-\u9fffA-Za-z0-9，。！：、【】\[\] ]{1,240}[A-Za-z0-9]{5,40}ηη', password
+    )
+    short_code = re.fullmatch(
+        r'(?:[￥¥$₴][A-Za-z0-9]{5,40}[￥¥$₴]|[（(【][A-Za-z0-9]{5,40}[）)】])', password
+    )
+    if douyin_command or short_code:
+        lines.extend(['📋 复制口令到购物 App', password])
+
+
 def product_message(data):
     url = valid_url(data.get('link'))
     if not url:
@@ -299,28 +342,9 @@ def product_message(data):
     current = amount(price.get('lowestPrice', price.get('price')))
     if current is not None:
         lines.append('参考售价：¥' + current)
-    coupons = data.get('couponInfo') or []
-    if isinstance(coupons, dict):
-        coupons = [coupons]
-    now_ms = time.time() * 1000
-    usable = []
-    for coupon in coupons if isinstance(coupons, list) else []:
-        if not isinstance(coupon, dict) or str(coupon.get('yn', '1')) == '0':
-            continue
-        discount = amount(coupon.get('discount'))
-        if discount is None or Decimal(discount) <= 0:
-            continue
-        begin, end = coupon.get('takeBeginTime'), coupon.get('takeEndTime')
-        try:
-            if begin is not None and float(begin) > now_ms:
-                continue
-            if end is not None and float(end) < now_ms:
-                continue
-        except (TypeError, ValueError):
-            continue
-        usable.append((coupon, discount))
-    if str(data.get('is_coupon')) == '1' and usable:
-        coupon, discount = usable[0]
+    usable = usable_coupon(data)
+    if usable:
+        coupon, discount = usable
         quota = amount(coupon.get('quota'))
         lines.append('🎫 优惠券：' + ('满%s减%s元' % (quota, discount) if quota and Decimal(quota) > 0 else discount + '元，门槛见领券页'))
         after = amount(price.get('lowestCouponPrice'))
@@ -330,7 +354,23 @@ def product_message(data):
         lines.append('🎫 当前未查到优惠券，可查看购买页的其他优惠。')
     else:
         lines.append('🎫 暂无完整的可领取券信息，以领券页为准。')
-    lines.extend(['', '🔗 领券 / 购买链接：', url, '', '价格、优惠券有效期和使用条件以购买页面为准。'])
+    lines.extend(['', '🔗 ' + ('领券购买' if usable else '购买链接'), url])
+    append_password(lines, data)
+    alternative = data.get('_alternative') or {}
+    alternative_url = valid_url(alternative.get('link'))
+    alternative_coupon = usable_coupon(alternative)
+    if not usable and alternative_url and alternative_coupon:
+        _, discount = alternative_coupon
+        lines.extend(['', '🎟 同款有券', '优惠券：¥' + discount])
+        alt_shop = safe_text((alternative.get('shopInfo') or {}).get('shopName'), 50)
+        if alt_shop:
+            lines.append('店铺：' + public_text(alt_shop, 50))
+        after = amount((alternative.get('priceInfo') or {}).get('lowestCouponPrice'))
+        if after is not None:
+            lines.append('券后参考价：¥' + after)
+        lines.extend(['领券链接', alternative_url])
+        append_password(lines, alternative)
+    lines.extend(['', '价格、优惠券有效期和使用条件以购买页面为准。'])
     return '\n'.join(lines)
 
 
@@ -469,7 +509,9 @@ class Plugin:
                 pass
         if self.enabled('ztk_enabled') and self.setting('ztk_key'):
             clients['ztk'] = ZhetaokeClient(self.setting('ztk_key'), self.setting('ztk_sid'), self.setting('ztk_pid'), timeout,
-                relation_id=self.setting('ztk_relation_id'))
+                relation_id=self.setting('ztk_relation_id'), pdd_client_id=self.setting('pdd_client_id'),
+                pdd_client_secret=self.setting('pdd_client_secret'), pdd_pid=self.setting('pdd_pid'),
+                douyin_sid=self.setting('ztk_douyin_sid'), kaola_sid=self.setting('ztk_kaola_sid'))
         return ComparisonClient(clients, {key: self.number(key + '_factor', 1, 0, 1) for key in ('jtk', 'ztk')},
             self.setting('preferred_provider') or 'jtk')
 
@@ -477,7 +519,7 @@ class Plugin:
         return product_message(data) + (admin_details(data) if self.details_allowed() else '')
 
     def cache_key(self, sid, link):
-        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
+        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','pdd_client_id','pdd_client_secret','pdd_pid','ztk_douyin_sid','ztk_kaola_sid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
         config = json.dumps([self.key] + [self.setting(k) for k in keys], ensure_ascii=False)
         return hashlib.sha256((VERSION + sid + link + config).encode()).hexdigest()
 
@@ -489,6 +531,8 @@ class Plugin:
             '折淘客 Key：' + ('已配置' if self.setting('ztk_key') else '未配置'),
             '折淘客授权 SID：' + ('已配置' if self.setting('ztk_sid') else '缺少'),
             '折淘客 PID：' + ('格式有效' if re.fullmatch(r'mm_\d+_\d+_\d+', str(self.setting('ztk_pid') or '')) else '缺少或格式无效'),
+            '折淘客拼多多：' + ('已配置' if self.setting('pdd_client_id') and self.setting('pdd_client_secret')
+                and re.fullmatch(r'\d+_\d+', str(self.setting('pdd_pid') or '')) else '缺少应用凭证或有效 PID'),
             '金额：仅管理员私聊可见，普通用户和群聊不展示。']
         if accounts and self.setting('ztk_key'):
             try:
@@ -585,13 +629,21 @@ def public_text(value, limit=160):
 
 class ZhetaokeClient:
     """Official HTTPS batch converter; JD deliberately excluded."""
-    def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id=''):
+    def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id='',
+                 pdd_client_id='', pdd_client_secret='', pdd_pid='', douyin_sid='', kaola_sid=''):
         self.key, self.sid, self.pid = key, sid, pid
         self.timeout, self.transport = timeout, transport
         self.relation_id = str(relation_id or '').strip()
+        self.pdd_client_id = str(pdd_client_id or '').strip()
+        self.pdd_client_secret = str(pdd_client_secret or '').strip()
+        self.pdd_pid = str(pdd_pid or '').strip()
+        self.douyin_sid = str(douyin_sid or '').strip()
+        self.kaola_sid = str(kaola_sid or '').strip()
 
     def request(self, endpoint, fields):
-        if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx'):
+        if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx', 'api_quanwang.ashx',
+                'open_pdd_zhuanlian_new.ashx', 'open_douyin_zhuanlian.ashx',
+                'open_kaola_zhuanke_api_zhuanlian.ashx'):
             raise PluginError('折淘客接口不在允许列表。')
         if not self.key:
             raise PluginError('折淘客未配置 Key。')
@@ -599,8 +651,14 @@ class ZhetaokeClient:
         if self.transport:
             result = self.transport(endpoint, params)
         else:
-            req = urllib.request.Request(ZTK_API + endpoint,
-                data=urllib.parse.urlencode(params).encode(),
+            search = endpoint == 'api_quanwang.ashx'
+            get = search or endpoint == 'open_pdd_zhuanlian_new.ashx'
+            encoded = urllib.parse.urlencode(params)
+            url = ('https://api.zhetaoke.com:10003/api/' if search else ZTK_API) + endpoint
+            if get:
+                url += '?' + encoded
+            req = urllib.request.Request(url,
+                data=None if get else encoded.encode(),
                 headers={'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'CouponQuery/2.0'})
             try:
                 opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
@@ -611,6 +669,14 @@ class ZhetaokeClient:
                 result = json.loads(body.decode('utf-8-sig'))
             except (urllib.error.URLError, OSError, ValueError):
                 raise PluginError('折淘客 HTTPS 请求失败或超时。') from None
+        if endpoint == 'open_pdd_zhuanlian_new.ashx' and isinstance(result, dict):
+            if isinstance(result.get('goods_zs_unit_generate_response'), dict):
+                return result
+        if isinstance(result, dict) and (
+            (endpoint == 'open_douyin_zhuanlian.ashx' and str(result.get('code')) == '10000')
+            or (endpoint == 'open_kaola_zhuanke_api_zhuanlian.ashx' and str(result.get('code')) == '200')
+        ):
+            return result
         if not isinstance(result, dict) or str(result.get('status')) != '200':
             # Upstream errors sometimes echo request credentials; never forward them.
             raise PluginError('折淘客未返回成功状态，请检查 Key、授权、PID 或商品权限。')
@@ -622,13 +688,15 @@ class ZhetaokeClient:
 
     def goods(self, link, user_sid):
         source = platform_of(link)
-        if source not in ('taobao', 'pdd', 'vip'):
-            raise PluginError('折淘客此适配器仅接淘宝/天猫、拼多多、唯品会；京东不接入。')
+        if source == 'pdd':
+            return self.pdd_goods(link, user_sid)
+        if source in ('douyin', 'kaola'):
+            return self.other_goods(source, link, user_sid)
+        if source not in ('taobao', 'vip'):
+            raise PluginError('折淘客当前支持淘宝/天猫、拼多多、唯品会、抖音和考拉。')
         if not self.sid or not re.fullmatch(r'mm_\d+_\d+_\d+', str(self.pid)):
             raise PluginError('折淘客缺少授权 SID 或有效 PID（mm_三段格式）。')
         fields = {'sid': self.sid, 'pid': self.pid, 'tkl': link}
-        if source == 'pdd':
-            fields['custom_parameters'] = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
         if source == 'taobao' and self.relation_id:
             fields['relation_id'] = self.relation_id
         result = self.request('open_gaoyongzhuanlian_tkl_piliang.ashx', fields)
@@ -644,10 +712,101 @@ class ZhetaokeClient:
         return {'skuName': result.get('tao_title') or result.get('title'), 'link': url,
             '_source': source, '_provider': 'ztk', '_product_id': str(result.get('tao_id') or ''),
             '_commission': amount(result.get('tkfee3')), 'is_coupon': int(has_coupon),
+            '_password': safe_text(result.get('result_tkl'), 80),
             'couponInfo': [{'discount': coupon}] if has_coupon else [],
             'priceInfo': {'lowestPrice': result.get('size'), 'lowestCouponPrice': result.get('quanhou_jiage')},
             'shopInfo': {'shopName': result.get('nick')},
             'imageInfo': {'imageList': [{'url': result.get('pic')}]}}
+
+
+    def pdd_goods(self, link, user_sid):
+        if not (self.pdd_client_id and self.pdd_client_secret and re.fullmatch(r'\d+_\d+', self.pdd_pid)):
+            raise PluginError('请配置拼多多应用 ID、密钥及已备案的拼多多 PID。')
+        custom = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
+        fields = {'pdd_app_key': self.pdd_client_id, 'pdd_app_secret': self.pdd_client_secret,
+            'pid': self.pdd_pid, 'content': link}
+        if len(custom.encode()) <= 64:
+            fields['custom_parameters'] = custom
+        result = self.request('open_pdd_zhuanlian_new.ashx', fields)
+        links = result.get('goods_zs_unit_generate_response') or {}
+        for key in ('mobile_short_url', 'short_url', 'mobile_url', 'url'):
+            url = valid_url(links.get(key))
+            if url and platform_of(url) == 'pdd':
+                return {'skuName': '拼多多商品', 'link': url, '_source': 'pdd',
+                    '_provider': 'ztk', '_link_only': True}
+        raise PluginError('拼多多专用转链未返回可用购买链接。')
+
+    def other_goods(self, source, link, user_sid):
+        # These providers accept an 11-digit tracking field, separate from the stored SID.
+        tracking = str(int(hashlib.sha256(user_sid.encode()).hexdigest(), 16) % 10**11).zfill(11)
+        if source == 'douyin':
+            if not self.douyin_sid:
+                raise PluginError('请配置折淘客抖音授权 SID。')
+            result = self.request('open_douyin_zhuanlian.ashx', {'sid': self.douyin_sid,
+                'product_url': link, 'external_info': tracking, 'need_share_link': 'true'})
+            outer = result.get('data')
+            row = outer.get('data') if isinstance(outer, dict) else None
+            row = row if isinstance(row, dict) else {}
+            urls = (row.get('dy_zlink'), row.get('share_link'))
+            command = row.get('dy_password')
+            password = safe_text(command, 300) if isinstance(command, str) else ''
+        else:
+            if not self.kaola_sid:
+                raise PluginError('请配置折淘客考拉授权 SID。')
+            result = self.request('open_kaola_zhuanke_api_zhuanlian.ashx', {'sid': self.kaola_sid,
+                'targetUrl': link, 'trackingCode2': tracking})
+            rows = result.get('data')
+            row = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
+            urls = (row.get('shortLink'), row.get('shareLink'))
+            password = ''
+        for candidate in urls:
+            url = valid_url(candidate)
+            if url and platform_of(url) == source:
+                return {'skuName': PLATFORMS[source][0] + '商品', 'link': url, '_source': source,
+                    '_provider': 'ztk', '_link_only': True, '_password': password}
+        raise PluginError('未返回有效商品链接。')
+
+    def find_coupon(self, original, user_sid):
+        if original.get('_source') != 'taobao' or not self.sid or not re.fullmatch(r'mm_\d+_\d+_\d+', str(self.pid)):
+            return None
+        title = safe_text(original.get('skuName'), 500)
+        image = product_image(original)
+        product_id = original.get('_product_id') or ''
+        if not (title and image and product_id):
+            return None
+        result = self.request('api_quanwang.ashx', {'sid': self.sid, 'pid': self.pid,
+            'q': title, 'page': '1', 'page_size': '10', 'sort': 'new'})
+        rows = result.get('content')
+        if not isinstance(rows, list):
+            return None
+        for row in rows[:10]:
+            if not isinstance(row, dict):
+                continue
+            item_id = str(row.get('tao_id') or '')
+            discount = amount(row.get('coupon_info_money'))
+            if (not re.fullmatch(r'[0-9]{5,30}', item_id) or not discount or Decimal(discount) <= 0
+                    or safe_text(row.get('tao_title'), 500) != title):
+                continue
+            if item_id != product_id and image_key(row.get('pict_url')) != image_key(image):
+                continue
+            alternate = self.goods('https://item.taobao.com/item.htm?id=' + item_id, user_sid)
+            if (alternate.get('_product_id') == item_id
+                    and safe_text(alternate.get('skuName'), 500) == title
+                    and alternate.get('link') != original.get('link')
+                    and usable_coupon(alternate)
+                    and (item_id == product_id or image_key(product_image(alternate)) == image_key(image))):
+                return alternate
+            # Bound extra conversion traffic to one matched search result.
+            break
+        return None
+
+
+def image_key(value):
+    url = valid_url(value)
+    if not url:
+        return None
+    parts = urllib.parse.urlsplit(url)
+    return parts.hostname, parts.path
 
 
 def comparable(one, two):
@@ -672,7 +831,7 @@ def select_result(candidates, errors=None, factors=None, preferred='jtk'):
         detail = '；'.join(PROVIDERS.get(k,k) + '：' + safe_text(v,140) for k,v in (errors or {}).items())
         raise PluginError('暂未查询到可用优惠。' + detail)
     factors = factors or {}
-    ordered = sorted(candidates, key=lambda x: x.get('_provider') != preferred)
+    ordered = sorted(candidates, key=lambda x: (bool(x.get('_link_only')), x.get('_provider') != preferred))
     base = ordered[0]
     eligible = [x for x in ordered if comparable(base, x) or x is base]
     def commission(item):
@@ -702,7 +861,7 @@ class ComparisonClient:
     def goods(self, link, sid):
         candidates, errors = [], {}
         clients = {k: v for k, v in self.clients.items()
-            if k != 'ztk' or platform_of(link) in ('taobao', 'pdd', 'vip')}
+            if k != 'ztk' or platform_of(link) in ('taobao', 'pdd', 'vip', 'douyin', 'kaola')}
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {k: pool.submit(v.goods, link, sid) for k, v in clients.items()}
             for name, future in futures.items():
@@ -716,7 +875,19 @@ class ComparisonClient:
                     errors[name] = str(error)
                 except Exception:
                     errors[name] = '接口返回异常。'
-        return select_result(candidates, errors, self.factors, self.preferred)
+        result = select_result(candidates, errors, self.factors, self.preferred)
+        if not usable_coupon(result):
+            alternate = next((item for item in candidates if
+                item.get('link') != result.get('link') and usable_coupon(item) and comparable(result, item)), None)
+            search = getattr(clients.get('ztk'), 'find_coupon', None)
+            if not alternate and search and result.get('_source') == 'taobao':
+                try:
+                    alternate = search(result, sid)
+                except PluginError as error:
+                    result['_errors']['ztk_search'] = str(error)
+            if alternate:
+                result['_alternative'] = alternate
+        return result
 
 
 def admin_details(data):
@@ -729,7 +900,7 @@ def admin_details(data):
             '¥' + row['amount'] if row['amount'] is not None else '金额未知',
             '；调整后¥' + format(Decimal(row['adjusted']), '.2f') if row.get('adjusted') is not None else ''))
     for name, error in data.get('_errors', {}).items():
-        lines.append('%s：%s' % (PROVIDERS.get(name, name), safe_text(error, 140)))
+        lines.append('%s：%s' % (PROVIDERS.get(name, '同款查券' if name == 'ztk_search' else name), safe_text(error, 140)))
     lines.append('金额为平台预估，非已结算；税费及实际订单以平台为准。')
     return '\n'.join(lines)
 
