@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.1.1]
+# [version: 2.1.2]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -60,7 +60,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.1.1'
+VERSION = '2.1.2'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -228,16 +228,27 @@ class Client:
         return result.get('data')
 
     def goods(self, link, sid):
+        source = platform_of(link)
         if self.pub_id:
-            parsed = self.request('/union/wn_convert', {'content': link})
-            if not isinstance(parsed, dict) or not parsed.get('goodsId'):
-                raise PluginError('未解析到可推广商品；商品可能未参与推广，请换一条链接。')
-            source = parsed.get('source')
-            if source not in PLATFORMS or source != platform_of(link):
-                raise PluginError('商品平台解析不一致，已停止转链。')
-            return self.convert_product(parsed, sid)
-        if platform_of(link) != 'jd':
+            try:
+                parsed = self.request('/union/wn_convert', {'content': link})
+                if not isinstance(parsed, dict) or not parsed.get('goodsId'):
+                    raise PluginError('未解析到可推广商品；商品可能未参与推广，请换一条链接。')
+                if parsed.get('source') != source or source not in PLATFORMS:
+                    raise PluginError('商品平台解析不一致，已停止转链。')
+                return self.convert_product(parsed, sid)
+            except PluginError as aggregate_error:
+                if source != 'jd':
+                    raise
+                try:
+                    return self.jd_goods(link, sid)
+                except PluginError as direct_error:
+                    raise PluginError('京东聚合：%s；京东专用：%s' % (aggregate_error, direct_error)) from None
+        if source != 'jd':
             raise PluginError('多平台商品查券需要管理员在插件配置填写聚推客pub_id。')
+        return self.jd_goods(link, sid)
+
+    def jd_goods(self, link, sid):
         data = self.request('/jd/get_goods_link', {'goods_link': link, 'sid': sid})
         if not isinstance(data, dict) or not valid_url(data.get('link')):
             raise PluginError('未返回可用推广链接，商品可能未参与推广或账号无此业务权限。')
@@ -572,6 +583,9 @@ class Plugin:
             '折淘客授权 SID：' + ('已配置' if self.setting('ztk_sid') else '缺少'),
             '折淘客 PID：' + ('格式有效' if re.fullmatch(r'mm_\d+_\d+_\d+', str(self.setting('ztk_pid') or '')) else '缺少或格式无效'),
             '折淘客抖音 SID：' + ('已配置' if self.setting('ztk_douyin_sid') else '缺少'),
+            '折淘客考拉 SID：' + ('已配置' if self.setting('ztk_kaola_sid') else '缺少'),
+            '美团活动 ID：' + ('已配置' if self.setting('mt_act_id') else '缺少'),
+            '淘宝闪购活动 ID：' + ('已配置' if self.setting('ele_act_id') else '缺少'),
             '折淘客拼多多：' + ('已配置' if self.setting('pdd_client_id') and self.setting('pdd_client_secret')
                 and re.fullmatch(r'\d+_\d+', str(self.setting('pdd_pid') or '')) else '缺少应用凭证或有效 PID'),
             '金额：仅管理员私聊可见，普通用户和群聊不展示。']
