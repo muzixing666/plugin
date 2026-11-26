@@ -2,13 +2,13 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.3]
+# [version: 2.0.4]
 # [public: true]
 # [open_source: true]
 # [disable: false]
 # [priority: 100]
-# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$]
-# [description: 发送购物链接查询优惠券、商品信息和购买入口，支持精选商品、外卖优惠与个人查询记录。]
+# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)|(?:₴[A-Za-z0-9]{5,40}₴|[\u3400-\u9fffA-Za-z0-9，。！：、【】\[\] ]{0,240}[A-Za-z0-9]{5,40}ηη))\s*$]
+# [description: 发送购物链接，一键查询商品信息和优惠券，获取领券购买入口。支持识别淘宝／天猫、京东、拼多多、唯品会、抖音、快手、考拉海购链接，另有美团外卖和淘宝闪购优惠入口。]
 # [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_key","bool":false,"name":"折淘客 AppKey","desc":"折淘客对接密钥；不写进源码。仅 Key 不足以完成转链，还需授权 SID、PID。"}]
@@ -59,12 +59,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.3'
+VERSION = '2.0.4'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
 HELP = """🛍 优惠券查询
-直接发送购物链接，或：查券 链接
+直接发送购物链接、淘口令或抖音商品口令，也可在前面加「查券」。
 返回商品、价格、优惠券和购买链接。平台提供口令时会一并返回。
 
 🛒 优惠券精选：查看当前精选商品
@@ -123,13 +123,40 @@ def platform_of(value):
     return ''
 
 
+TAOBAO_PASSWORD = re.compile(r'(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)')
+TAOBAO_BRACKET_PASSWORD = re.compile(r'(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)')
+DOUYIN_PASSWORD = re.compile(r'(?:₴[A-Za-z0-9]{5,40}₴|[\u3400-\u9fffA-Za-z0-9，。！：、【】\[\] ]{0,240}[A-Za-z0-9]{5,40}ηη)')
+
+
+def query_platform(value):
+    if TAOBAO_PASSWORD.fullmatch(value) or TAOBAO_BRACKET_PASSWORD.fullmatch(value):
+        return 'taobao'
+    if DOUYIN_PASSWORD.fullmatch(value):
+        return 'douyin'
+    return platform_of(value)
+
+
+def extract_query(text):
+    value = html.unescape(re.sub(r'^查券\s+', '', text).strip())
+    if re.search(r'https?://', value, re.I):
+        return extract_link(text)
+    passwords = TAOBAO_PASSWORD.findall(value)
+    if len(passwords) > 1:
+        raise PluginError('每次请发送一个商品口令。')
+    if passwords:
+        return passwords[0]
+    if TAOBAO_BRACKET_PASSWORD.fullmatch(value) or DOUYIN_PASSWORD.fullmatch(value):
+        return value
+    return extract_link(text)
+
+
 def extract_link(text):
     # QQ may encode & as entities in the incoming text.
     links = re.findall(r'https?://[^\s<>"“”]+', html.unescape(text), re.I)
     if len(links) > 1:
         raise PluginError('每次请发一个商品链接。')
     if not links:
-        raise PluginError('请发送包含 https:// 的购物分享链接；暂不支持仅口令。')
+        raise PluginError('请发送商品链接、淘口令或抖音商品口令。')
     link = links[0].rstrip('，。！？；、）】》,.!?;)]')
     if len(link) > 2000 or not platform_of(link):
         raise PluginError('未识别为支持的电商分享链接，发送“返利平台”查看说明。')
@@ -584,7 +611,7 @@ class Plugin:
             return '\n\n'.join('订单尾号 %s\n%s\n预估返利金额：¥%s' % (str(x.get('order_sn',''))[-6:],
                 safe_text(x.get('order_title') or x.get('act_name')),amount(x.get('jtk_share_fee')) or '未知') for x in rows), ''
         if not self.private() and not self.enabled('group_query'):
-            return '请私聊发送商品链接查询优惠券。', ''
+            return '请私聊发送商品链接或口令查询优惠券。', ''
         limit = int(self.number('rate_limit',8,1,30))
         if not self.state.allow(sid, limit):
             return '查询较频繁，请一分钟后再试。', ''
@@ -603,9 +630,9 @@ class Plugin:
             if not activity_id:
                 return '此优惠入口暂未配置，请联系管理员。', ''
             return self.api_client().activity(activity_id,sid), ''
-        link = extract_link(text)
+        link = extract_query(text)
         allowed = str(self.setting('allowed_platforms') or '').strip()
-        if allowed and platform_of(link) not in {x.strip() for x in allowed.split(',')}:
+        if allowed and query_platform(link) not in {x.strip() for x in allowed.split(',')}:
             return '该平台暂未开放查询。', ''
         cache_key = self.cache_key(sid, link)
         ttl = self.number('cache_seconds',60,0,600)
@@ -687,7 +714,7 @@ class ZhetaokeClient:
         return rows if isinstance(rows, list) else []
 
     def goods(self, link, user_sid):
-        source = platform_of(link)
+        source = query_platform(link)
         if source == 'pdd':
             return self.pdd_goods(link, user_sid)
         if source in ('douyin', 'kaola'):
@@ -860,8 +887,14 @@ class ComparisonClient:
 
     def goods(self, link, sid):
         candidates, errors = [], {}
-        clients = {k: v for k, v in self.clients.items()
-            if k != 'ztk' or platform_of(link) in ('taobao', 'pdd', 'vip', 'douyin', 'kaola')}
+        source = query_platform(link)
+        if valid_url(link):
+            clients = {k: v for k, v in self.clients.items()
+                if k != 'ztk' or source in ('taobao', 'pdd', 'vip', 'douyin', 'kaola')}
+        else:
+            clients = {k: v for k, v in self.clients.items() if k == 'ztk'}
+            if not clients:
+                raise PluginError('口令查询需启用折淘客并配置对应平台授权。')
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {k: pool.submit(v.goods, link, sid) for k, v in clients.items()}
             for name, future in futures.items():
