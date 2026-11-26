@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.8]
+# [version: 2.0.9]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -17,6 +17,7 @@
 # [param: {"required":false,"key":"jtk_coupon.pdd_client_id","bool":false,"name":"拼多多应用 Client ID","desc":"折淘客拼多多专用转链所用应用 ID，需在多多进宝关联应用。"}]
 # [param: {"required":false,"key":"jtk_coupon.pdd_client_secret","bool":false,"name":"拼多多应用 Client Secret","desc":"折淘客拼多多专用转链所用密钥；只填面板配置，启用后经 HTTPS 发送至折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pdd_pid","bool":false,"name":"拼多多推广位 PID","desc":"数字_数字格式，使用已完成授权备案的推广位；专用接口需同时配置折淘客 Key、应用 ID 和密钥。"}]
+# [param: {"required":false,"key":"jtk_coupon.pdd_track_user","bool":false,"name":"拼多多按用户跟单","desc":"留空或 false 使用导购模式，只传 PID。填 true 为转链附加用户标识，每个用户需单独完成授权备案。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_douyin_sid","bool":false,"name":"折淘客抖音授权 SID","desc":"折淘客中已授权的抖音账号对应 SID，留空跳过抖音转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_kaola_sid","bool":false,"name":"折淘客考拉授权 SID","desc":"折淘客中已授权的考拉账号对应 SID，留空跳过考拉转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_relation_id","bool":false,"name":"折淘客淘宝渠道关系 ID","desc":"可选；授权类型要求渠道关系 ID 时填写已备案的 relation_id，不可随意编造。留空不传。"}]
@@ -59,7 +60,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.8'
+VERSION = '2.0.9'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -538,7 +539,8 @@ class Plugin:
             clients['ztk'] = ZhetaokeClient(self.setting('ztk_key'), self.setting('ztk_sid'), self.setting('ztk_pid'), timeout,
                 relation_id=self.setting('ztk_relation_id'), pdd_client_id=self.setting('pdd_client_id'),
                 pdd_client_secret=self.setting('pdd_client_secret'), pdd_pid=self.setting('pdd_pid'),
-                douyin_sid=self.setting('ztk_douyin_sid'), kaola_sid=self.setting('ztk_kaola_sid'))
+                douyin_sid=self.setting('ztk_douyin_sid'), kaola_sid=self.setting('ztk_kaola_sid'),
+                pdd_track_user=self.enabled('pdd_track_user', False))
         return ComparisonClient(clients, {key: self.number(key + '_factor', 1, 0, 1) for key in ('jtk', 'ztk')},
             self.setting('preferred_provider') or 'jtk')
 
@@ -546,7 +548,7 @@ class Plugin:
         return product_message(data) + (admin_details(data) if self.details_allowed() else '')
 
     def cache_key(self, sid, link):
-        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','pdd_client_id','pdd_client_secret','pdd_pid','ztk_douyin_sid','ztk_kaola_sid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
+        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','pdd_client_id','pdd_client_secret','pdd_pid','pdd_track_user','ztk_douyin_sid','ztk_kaola_sid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
         config = json.dumps([self.key] + [self.setting(k) for k in keys], ensure_ascii=False)
         return hashlib.sha256((VERSION + sid + link + config).encode()).hexdigest()
 
@@ -683,13 +685,14 @@ def pdd_error(result):
 class ZhetaokeClient:
     """Official HTTPS batch converter; JD deliberately excluded."""
     def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id='',
-                 pdd_client_id='', pdd_client_secret='', pdd_pid='', douyin_sid='', kaola_sid=''):
+                 pdd_client_id='', pdd_client_secret='', pdd_pid='', douyin_sid='', kaola_sid='', pdd_track_user=False):
         self.key, self.sid, self.pid = key, sid, pid
         self.timeout, self.transport = timeout, transport
         self.relation_id = str(relation_id or '').strip()
         self.pdd_client_id = str(pdd_client_id or '').strip()
         self.pdd_client_secret = str(pdd_client_secret or '').strip()
         self.pdd_pid = str(pdd_pid or '').strip()
+        self.pdd_track_user = pdd_track_user
         self.douyin_sid = str(douyin_sid or '').strip()
         self.kaola_sid = str(kaola_sid or '').strip()
 
@@ -794,17 +797,20 @@ class ZhetaokeClient:
     def pdd_fields(self, user_sid):
         if not (self.pdd_client_id and self.pdd_client_secret and re.fullmatch(r'\d+_\d+', self.pdd_pid)):
             raise PluginError('请配置拼多多应用 ID、密钥及已备案的拼多多 PID。')
-        custom = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
-        if len(custom.encode()) > 64:
-            raise PluginError('拼多多用户标识超过长度限制。')
-        return {'pdd_app_key': self.pdd_client_id, 'pdd_app_secret': self.pdd_client_secret,
-            'pid': self.pdd_pid, 'custom_parameters': custom}
+        fields = {'pdd_app_key': self.pdd_client_id, 'pdd_app_secret': self.pdd_client_secret,
+            'pid': self.pdd_pid}
+        if self.pdd_track_user:
+            custom = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
+            if len(custom.encode()) > 64:
+                raise PluginError('拼多多用户标识超过长度限制。')
+            fields['custom_parameters'] = custom
+        return fields
 
     def pdd_authorization(self, user_sid):
         fields = self.pdd_fields(user_sid)
         binding = self.request('open_pdd_shouquan_query_new.ashx', fields)['authority_query_response']
         if str(binding.get('bind')) == '1':
-            return '当前会话的拼多多用户标识已绑定。'
+            return '当前会话的拼多多用户标识已绑定。' if self.pdd_track_user else '拼多多导购 PID 已绑定。'
         response = self.request('open_pdd_shouquan_new.ashx', fields)['rp_promotion_url_generate_response']
         rows = response.get('url_list')
         for row in rows if isinstance(rows, list) else []:
@@ -838,7 +844,8 @@ class ZhetaokeClient:
     def pdd_binding_status(self, conversion_fields):
         fields = {key: value for key, value in conversion_fields.items() if key != 'content'}
         results = []
-        for label in ('当前用户', '仅 PID'):
+        labels = ('当前用户', '仅 PID') if 'custom_parameters' in fields else ('仅 PID',)
+        for label in labels:
             try:
                 payload = self.request('open_pdd_shouquan_query_new.ashx', fields)['authority_query_response']
                 status = {'1': '已绑定', '0': '未绑定'}.get(str(payload.get('bind')), '状态未知')
