@@ -2,12 +2,12 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.7]
+# [version: 2.0.8]
 # [public: true]
 # [open_source: true]
 # [disable: false]
 # [priority: 100]
-# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)|(?:₴[A-Za-z0-9]{5,40}₴|[㐀-鿿A-Za-z0-9，。！：、【】\[\] ]{0,240}[A-Za-z0-9]{5,40}ηη))\s*$]
+# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)|(?:₴[A-Za-z0-9]{5,40}₴|[㐀-鿿A-Za-z0-9，。！：、【】\[\] ]{0,240}[A-Za-z0-9]{5,40}ηη))\s*$]
 # [description: 发送购物链接，一键查询商品信息和优惠券，获取领券购买入口。支持识别淘宝／天猫、京东、拼多多、唯品会、抖音、快手、考拉海购链接，另有美团外卖和淘宝闪购优惠入口。]
 # [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
@@ -59,7 +59,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.7'
+VERSION = '2.0.8'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -582,12 +582,18 @@ class Plugin:
             return HELP, ''
         if text == '支持平台':
             return '识别京东、淘宝/天猫、拼多多、唯品会、考拉、抖音、快手。\n实际可查询范围取决于已开通的接口；部分商品可能没有优惠券。\n外卖请发送“美团外卖优惠”或“淘宝闪购优惠”。', ''
-        admin_command = (text in ('优惠券检测','折淘客检测','优惠券配置','返利渠道','返利订单','我的返利订单')
+        admin_command = (text in ('优惠券检测','折淘客检测','优惠券配置','拼多多授权','返利渠道','返利订单','我的返利订单')
             or text.startswith(('返利活动','优惠券活动','返利测试','优惠券测试')))
         if admin_command and (not self.admin() or not self.private()):
             return '此指令仅管理员私聊可用。', ''
         if text in ('优惠券检测','折淘客检测','优惠券配置'):
             return self.diagnostics(text == '折淘客检测'), ''
+        if text == '拼多多授权':
+            client = self.comparison_client()
+            ztk = client.clients.get('ztk') if isinstance(client, ComparisonClient) else None
+            if not ztk:
+                raise PluginError('请先启用并配置折淘客。')
+            return ztk.pdd_authorization(self.identity()), ''
         if text.startswith(('返利活动','优惠券活动')):
             keyword = re.sub(r'^(?:返利活动|优惠券活动)', '', text).strip()
             rows = self.api_client().activities()
@@ -689,7 +695,7 @@ class ZhetaokeClient:
 
     def request(self, endpoint, fields):
         if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx', 'api_quanwang.ashx',
-                'open_pdd_zhuanlian_new.ashx', 'open_pdd_shouquan_query_new.ashx',
+                'open_pdd_zhuanlian_new.ashx', 'open_pdd_shouquan_query_new.ashx', 'open_pdd_shouquan_new.ashx',
                 'open_douyin_zhuanlian.ashx',
                 'open_kaola_zhuanke_api_zhuanlian.ashx'):
             raise PluginError('折淘客接口不在允许列表。')
@@ -700,7 +706,7 @@ class ZhetaokeClient:
             result = self.transport(endpoint, params)
         else:
             search = endpoint == 'api_quanwang.ashx'
-            get = search or endpoint in ('open_pdd_zhuanlian_new.ashx', 'open_pdd_shouquan_query_new.ashx')
+            get = search or endpoint.startswith('open_pdd_')
             encoded = urllib.parse.urlencode(params)
             url = ('https://api.zhetaoke.com:10003/api/' if search else ZTK_API) + endpoint
             if get:
@@ -728,6 +734,10 @@ class ZhetaokeClient:
                 raise PluginError('折淘客返回的数据无法解析为 JSON。') from None
         if endpoint == 'open_pdd_zhuanlian_new.ashx':
             if isinstance(result, dict) and isinstance(result.get('goods_zs_unit_generate_response'), dict):
+                return result
+            raise PluginError(pdd_error(result))
+        if endpoint == 'open_pdd_shouquan_new.ashx':
+            if isinstance(result, dict) and isinstance(result.get('rp_promotion_url_generate_response'), dict):
                 return result
             raise PluginError(pdd_error(result))
         if endpoint == 'open_pdd_shouquan_query_new.ashx':
@@ -781,17 +791,36 @@ class ZhetaokeClient:
             'imageInfo': {'imageList': [{'url': result.get('pic')}]}}
 
 
-    def pdd_goods(self, link, user_sid):
+    def pdd_fields(self, user_sid):
         if not (self.pdd_client_id and self.pdd_client_secret and re.fullmatch(r'\d+_\d+', self.pdd_pid)):
             raise PluginError('请配置拼多多应用 ID、密钥及已备案的拼多多 PID。')
         custom = json.dumps({'uid': user_sid, 'sid': ''}, separators=(',', ':'))
+        if len(custom.encode()) > 64:
+            raise PluginError('拼多多用户标识超过长度限制。')
+        return {'pdd_app_key': self.pdd_client_id, 'pdd_app_secret': self.pdd_client_secret,
+            'pid': self.pdd_pid, 'custom_parameters': custom}
+
+    def pdd_authorization(self, user_sid):
+        fields = self.pdd_fields(user_sid)
+        binding = self.request('open_pdd_shouquan_query_new.ashx', fields)['authority_query_response']
+        if str(binding.get('bind')) == '1':
+            return '当前会话的拼多多用户标识已绑定。'
+        response = self.request('open_pdd_shouquan_new.ashx', fields)['rp_promotion_url_generate_response']
+        rows = response.get('url_list')
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            for key in ('mobile_url', 'url'):
+                url = valid_url(row.get(key))
+                if url and url.startswith('https://') and platform_of(url) == 'pdd':
+                    return '请用手机打开授权链接并在拼多多确认授权，然后在同一会话重新查券。\n' + url
+        raise PluginError('拼多多未返回可用授权链接。')
+
+    def pdd_goods(self, link, user_sid):
+        fields = self.pdd_fields(user_sid)
         parts = urllib.parse.urlsplit(link)
         goods_ids = urllib.parse.parse_qs(parts.query, keep_blank_values=True).get('goods_id', [])
-        content = goods_ids[0] if len(goods_ids) == 1 and re.fullmatch(r'[0-9]{6,20}', goods_ids[0]) else link
-        fields = {'pdd_app_key': self.pdd_client_id, 'pdd_app_secret': self.pdd_client_secret,
-            'pid': self.pdd_pid, 'content': content}
-        if len(custom.encode()) <= 64:
-            fields['custom_parameters'] = custom
+        fields['content'] = goods_ids[0] if len(goods_ids) == 1 and re.fullmatch(r'[0-9]{6,20}', goods_ids[0]) else link
         try:
             result = self.request('open_pdd_zhuanlian_new.ashx', fields)
         except PluginError as error:
