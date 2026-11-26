@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.0.6]
+# [version: 2.0.7]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -59,7 +59,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.0.6'
+VERSION = '2.0.7'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -689,7 +689,8 @@ class ZhetaokeClient:
 
     def request(self, endpoint, fields):
         if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx', 'api_quanwang.ashx',
-                'open_pdd_zhuanlian_new.ashx', 'open_douyin_zhuanlian.ashx',
+                'open_pdd_zhuanlian_new.ashx', 'open_pdd_shouquan_query_new.ashx',
+                'open_douyin_zhuanlian.ashx',
                 'open_kaola_zhuanke_api_zhuanlian.ashx'):
             raise PluginError('折淘客接口不在允许列表。')
         if not self.key:
@@ -699,7 +700,7 @@ class ZhetaokeClient:
             result = self.transport(endpoint, params)
         else:
             search = endpoint == 'api_quanwang.ashx'
-            get = search or endpoint == 'open_pdd_zhuanlian_new.ashx'
+            get = search or endpoint in ('open_pdd_zhuanlian_new.ashx', 'open_pdd_shouquan_query_new.ashx')
             encoded = urllib.parse.urlencode(params)
             url = ('https://api.zhetaoke.com:10003/api/' if search else ZTK_API) + endpoint
             if get:
@@ -727,6 +728,10 @@ class ZhetaokeClient:
                 raise PluginError('折淘客返回的数据无法解析为 JSON。') from None
         if endpoint == 'open_pdd_zhuanlian_new.ashx':
             if isinstance(result, dict) and isinstance(result.get('goods_zs_unit_generate_response'), dict):
+                return result
+            raise PluginError(pdd_error(result))
+        if endpoint == 'open_pdd_shouquan_query_new.ashx':
+            if isinstance(result, dict) and isinstance(result.get('authority_query_response'), dict):
                 return result
             raise PluginError(pdd_error(result))
         if isinstance(result, dict) and (
@@ -787,7 +792,12 @@ class ZhetaokeClient:
             'pid': self.pdd_pid, 'content': content}
         if len(custom.encode()) <= 64:
             fields['custom_parameters'] = custom
-        result = self.request('open_pdd_zhuanlian_new.ashx', fields)
+        try:
+            result = self.request('open_pdd_zhuanlian_new.ashx', fields)
+        except PluginError as error:
+            if '错误码 50001）' not in str(error):
+                raise
+            raise PluginError(str(error) + self.pdd_binding_status(fields)) from None
         links = result.get('goods_zs_unit_generate_response') or {}
         for key in ('mobile_short_url', 'short_url', 'mobile_url', 'url'):
             url = valid_url(links.get(key))
@@ -795,6 +805,20 @@ class ZhetaokeClient:
                 return {'skuName': '拼多多商品', 'link': url, '_source': 'pdd',
                     '_provider': 'ztk', '_link_only': True}
         raise PluginError('拼多多专用转链未返回可用购买链接。')
+
+    def pdd_binding_status(self, conversion_fields):
+        fields = {key: value for key, value in conversion_fields.items() if key != 'content'}
+        results = []
+        for label in ('当前用户', '仅 PID'):
+            try:
+                payload = self.request('open_pdd_shouquan_query_new.ashx', fields)['authority_query_response']
+                status = {'1': '已绑定', '0': '未绑定'}.get(str(payload.get('bind')), '状态未知')
+            except PluginError:
+                status = '查询失败'
+            results.append(label + '：' + status)
+            if fields.pop('custom_parameters', None) is None:
+                break
+        return ' 备案查询：' + '，'.join(results) + '。'
 
     def other_goods(self, source, link, user_sid):
         # These providers accept an 11-digit tracking field, separate from the stored SID.
