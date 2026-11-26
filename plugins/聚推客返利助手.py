@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.1.2]
+# [version: 2.1.3]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -60,7 +60,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.1.2'
+VERSION = '2.1.3'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -954,17 +954,22 @@ class ZhetaokeClient:
                 continue
             item_id = str(row.get('tao_id') or '')
             discount = amount(row.get('coupon_info_money'))
-            if (not re.fullmatch(r'[0-9]{5,30}', item_id) or not discount or Decimal(discount) <= 0
+            if (not re.fullmatch(r'[A-Za-z0-9_-]{5,120}', item_id) or not discount or Decimal(discount) <= 0
                     or safe_text(row.get('tao_title'), 500) != title):
                 continue
             if item_id != product_id and image_key(row.get('pict_url')) != image_key(image):
                 continue
-            alternate = self.goods('https://item.taobao.com/item.htm?id=' + item_id, user_sid)
-            if (alternate.get('_product_id') == item_id
-                    and safe_text(alternate.get('skuName'), 500) == title
+            if item_id.isdigit():
+                link = 'https://item.taobao.com/item.htm?id=' + item_id
+            else:
+                link = valid_url(row.get('item_url'))
+                if not link.startswith('https://') or platform_of(link) != 'taobao':
+                    continue
+            alternate = self.goods(link, user_sid)
+            if (safe_text(alternate.get('skuName'), 500) == title
                     and alternate.get('link') != original.get('link')
                     and usable_coupon(alternate)
-                    and (item_id == product_id or image_key(product_image(alternate)) == image_key(image))):
+                    and (alternate.get('_product_id') == product_id or image_key(product_image(alternate)) == image_key(image))):
                 return alternate
             # Bound extra conversion traffic to one matched search result.
             break
