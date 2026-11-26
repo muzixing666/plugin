@@ -2,12 +2,12 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.1.6]
+# [version: 2.1.7]
 # [public: true]
 # [open_source: true]
 # [disable: false]
 # [priority: 100]
-# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)\s*$]
+# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:[￥¥$₤₴€£][A-Za-z0-9]{5,40}[￥¥$₤₴€£])|^\s*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)\s*$|^(?s:.*(?:淘宝|天猫|手淘|淘口令|复制|打开).*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】).*|.*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】).*(?:淘宝|天猫|手淘|淘口令|复制|打开).*)$|^(?:查券\s+)?淘口令[：:\s]+(?s:\S.*)$]
 # [description: 发送购物链接，一键查询商品信息和优惠券，获取领券购买入口。支持识别淘宝／天猫、京东、拼多多、唯品会、快手、考拉海购链接，另有美团外卖和淘宝闪购优惠入口。]
 # [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
@@ -59,12 +59,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.1.6'
+VERSION = '2.1.7'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
 HELP = """🛍 优惠券查询
-直接发送购物链接或淘口令，也可以在前面加「查券」。
+直接发送购物链接或淘口令。未自动识别时，可发送「淘口令：完整分享文案」。
 返回商品、价格、优惠券和购买链接。平台提供口令时会一并返回。
 
 🛒 优惠券精选：查看当前精选商品
@@ -122,28 +122,39 @@ def platform_of(value):
     return ''
 
 
-TAOBAO_PASSWORD = re.compile(r'(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)')
+TAOBAO_PASSWORD = re.compile(r'(?:[￥¥$₤₴€£][A-Za-z0-9]{5,40}[￥¥$₤₴€£])')
 TAOBAO_BRACKET_PASSWORD = re.compile(r'(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)')
+TAOBAO_SHARE_CONTEXT = re.compile(r'(?:淘宝|天猫|手淘|淘口令|复制|打开)')
+TAOBAO_PREFIX = '淘口令：'
 
 
 def query_platform(value):
-    if TAOBAO_PASSWORD.fullmatch(value) or TAOBAO_BRACKET_PASSWORD.fullmatch(value):
+    if (value.startswith(TAOBAO_PREFIX) or TAOBAO_PASSWORD.fullmatch(value)
+            or TAOBAO_BRACKET_PASSWORD.fullmatch(value)):
         return 'taobao'
     return platform_of(value)
 
 
 def extract_query(text):
     value = html.unescape(re.sub(r'^查券\s+', '', text).strip())
-    if re.search(r'https?://', value, re.I):
-        return extract_link(text)
+    explicit = re.fullmatch(r'淘口令[：:\s]+(.+)', value, re.S)
+    if explicit:
+        value = explicit.group(1).strip()
     passwords = TAOBAO_PASSWORD.findall(value)
+    if not passwords and (explicit or TAOBAO_SHARE_CONTEXT.search(value)):
+        passwords = TAOBAO_BRACKET_PASSWORD.findall(value)
     if len(passwords) > 1:
         raise PluginError('每次请发送一个商品口令。')
     if passwords:
+        urls = re.findall(r'https?://[^\s<>"“”]+', value, re.I)
+        if any(platform_of(url) not in ('', 'taobao') for url in urls):
+            raise PluginError('请把淘口令和其他平台商品链接分开发送。')
         return passwords[0]
     if TAOBAO_BRACKET_PASSWORD.fullmatch(value):
         return value
-    return extract_link(text)
+    if explicit and len(value) <= 600 and not re.search(r'https?://', value, re.I):
+        return TAOBAO_PREFIX + value
+    return extract_link(value)
 
 
 def extract_link(text):
@@ -350,10 +361,7 @@ def append_password(lines, data):
     password = data.get('_password')
     if not isinstance(password, str):
         return
-    short_code = re.fullmatch(
-        r'(?:[￥¥$][A-Za-z0-9]{5,40}[￥¥$]|[（(【][A-Za-z0-9]{5,40}[）)】])', password
-    )
-    if short_code:
+    if TAOBAO_PASSWORD.fullmatch(password) or TAOBAO_BRACKET_PASSWORD.fullmatch(password):
         lines.extend(['📋 复制口令到购物 App', password])
 
 
@@ -755,7 +763,20 @@ class ZhetaokeClient:
                 and isinstance(result, dict) and str(result.get('code')) == '200'):
             return result
         if not isinstance(result, dict) or str(result.get('status')) != '200':
-            # Upstream errors sometimes echo request credentials; never forward them.
+            # Keep upstream messages out of replies because they can contain request credentials.
+            if endpoint == 'open_gaoyongzhuanlian_tkl_piliang.ashx' and isinstance(result, dict):
+                status = str(result.get('status') or '')
+                suffix = '（状态码 ' + status + '）' if re.fullmatch(r'[0-9]{1,6}', status) else ''
+                message = str(result.get('message') or result.get('msg') or result.get('content') or '').lower()
+                if any(word in message for word in ('rid', 'relation_id', '代理类型', '渠道pid')):
+                    hint = '请核对淘宝代理授权 SID、渠道 PID 和关系 ID。'
+                elif any(word in message for word in ('sid', '授权', 'token')):
+                    hint = '请核对平台授权 SID 和有效期。'
+                elif any(word in message for word in ('口令', '商品', '链接')):
+                    hint = '请核对分享口令或商品是否仍可以推广。'
+                else:
+                    hint = '请检查 Key、授权、PID 或商品权限。'
+                raise PluginError('折淘客未返回成功状态' + suffix + '。' + hint)
             raise PluginError('折淘客未返回成功状态，请检查 Key、授权、PID 或商品权限。')
         return result
 
@@ -773,7 +794,8 @@ class ZhetaokeClient:
             raise PluginError('折淘客当前支持淘宝/天猫、拼多多、唯品会和考拉。')
         if not self.sid or not re.fullmatch(r'mm_\d+_\d+_\d+', str(self.pid)):
             raise PluginError('折淘客缺少授权 SID 或有效 PID（mm_三段格式）。')
-        fields = {'sid': self.sid, 'pid': self.pid, 'tkl': link}
+        content = link[len(TAOBAO_PREFIX):] if link.startswith(TAOBAO_PREFIX) else link
+        fields = {'sid': self.sid, 'pid': self.pid, 'tkl': content}
         if source == 'taobao' and self.relation_id:
             fields['relation_id'] = self.relation_id
         result = self.request('open_gaoyongzhuanlian_tkl_piliang.ashx', fields)
