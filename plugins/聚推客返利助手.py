@@ -2,7 +2,7 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.1.3]
+# [version: 2.1.4]
 # [public: true]
 # [open_source: true]
 # [disable: false]
@@ -60,7 +60,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.1.3'
+VERSION = '2.1.4'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
@@ -888,11 +888,19 @@ class ZhetaokeClient:
         if source == 'douyin':
             if not self.douyin_sid:
                 raise PluginError('请配置折淘客抖音授权 SID。')
-            if not valid_url(link):
-                command = link[len(DOUYIN_PREFIX):] if link.startswith(DOUYIN_PREFIX) else link
-                link = self.douyin_product_link(command)
-            result = self.request('open_douyin_zhuanlian.ashx', {'sid': self.douyin_sid,
-                'product_url': link, 'need_share_link': 'true', 'use_coupon': 'true'})
+            command = link[len(DOUYIN_PREFIX):] if link.startswith(DOUYIN_PREFIX) else link
+            fields = {'sid': self.douyin_sid, 'product_url': command,
+                'need_share_link': 'true', 'use_coupon': 'true'}
+            try:
+                result = self.request('open_douyin_zhuanlian.ashx', fields)
+            except PluginError as direct_error:
+                if valid_url(link) or not str(direct_error).startswith('折淘客未返回成功状态'):
+                    raise
+                try:
+                    product_url = self.douyin_product_link(command)
+                    result = self.request('open_douyin_zhuanlian.ashx', dict(fields, product_url=product_url))
+                except PluginError as fallback_error:
+                    raise PluginError('抖音口令直转未成功；解析兜底：' + str(fallback_error)) from None
             outer = result.get('data')
             row = outer.get('data') if isinstance(outer, dict) else None
             row = row if isinstance(row, dict) else {}
