@@ -2,13 +2,13 @@
 # [icon: https://cdn.jsdelivr.net/gh/muzixing666/plugin@main/icons/rebate.svg]
 # [language: python]
 # [author: Codex]
-# [version: 2.1.5]
+# [version: 2.1.6]
 # [public: true]
 # [open_source: true]
 # [disable: false]
 # [priority: 100]
-# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|douyin\.com|iesdouyin\.com|jinritemai\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)\s*$|^(?s:(?:.*[^A-Za-z0-9])?(?:₴[A-Za-z0-9]{5,40}₴|##[A-Za-z0-9]{5,40}##|[A-Za-z0-9]{5,40}[ηƞ]{2})(?:[^A-Za-z0-9].*)?)$|^(?:查券\s+)?抖音口令[：:\s]+(?s:\S.*)$]
-# [description: 发送购物链接，一键查询商品信息和优惠券，获取领券购买入口。支持识别淘宝／天猫、京东、拼多多、唯品会、抖音、快手、考拉海购链接，另有美团外卖和淘宝闪购优惠入口。]
+# [rule: (?i)https?://[^\s]*(?:jd\.com|3\.cn|jingxi\.com|taobao\.com|tmall\.com|tb\.cn|tb\.com|pinduoduo\.com|yangkeduo\.com|pdd\.cn|vip\.com|kaola\.com|kuaishou\.com|gifshow\.com|kwaixiaodian\.com)[^\s]*|^(?:优惠券查询|优惠券帮助|优惠券菜单|优惠券精选|支持平台|查询记录|清空查询记录|优惠券检测|折淘客检测|优惠券配置|拼多多授权|订单查询|优惠券活动(?:\s+\S+)?|美团外卖优惠|淘宝闪购优惠)$|^查券\s+.+$|^优惠券测试\s+.+$|(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)|^\s*(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)\s*$]
+# [description: 发送购物链接，一键查询商品信息和优惠券，获取领券购买入口。支持识别淘宝／天猫、京东、拼多多、唯品会、快手、考拉海购链接，另有美团外卖和淘宝闪购优惠入口。]
 # [param: {"required":false,"key":"jtk_coupon.api_key","bool":false,"name":"聚推客 API Key","desc":"接口密钥，仅保存在配置中；京东继续使用聚推客，不接折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pub_id","bool":false,"name":"聚推客 pub_id","desc":"个人中心的推广者身份标识，用于新版商品解析和转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_key","bool":false,"name":"折淘客 AppKey","desc":"折淘客对接密钥；不写进源码。仅 Key 不足以完成转链，还需授权 SID、PID。"}]
@@ -18,7 +18,6 @@
 # [param: {"required":false,"key":"jtk_coupon.pdd_client_secret","bool":false,"name":"拼多多应用 Client Secret","desc":"折淘客拼多多专用转链所用密钥；只填面板配置，启用后经 HTTPS 发送至折淘客。"}]
 # [param: {"required":false,"key":"jtk_coupon.pdd_pid","bool":false,"name":"拼多多推广位 PID","desc":"数字_数字格式，使用已完成授权备案的推广位；专用接口需同时配置折淘客 Key、应用 ID 和密钥。"}]
 # [param: {"required":false,"key":"jtk_coupon.pdd_track_user","bool":false,"name":"拼多多按用户跟单","desc":"留空或 false 使用导购模式，只传 PID。填 true 为转链附加用户标识，每个用户需单独完成授权备案。"}]
-# [param: {"required":false,"key":"jtk_coupon.ztk_douyin_sid","bool":false,"name":"折淘客抖音授权 SID","desc":"折淘客中已授权的抖音账号对应 SID，留空跳过抖音转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_kaola_sid","bool":false,"name":"折淘客考拉授权 SID","desc":"折淘客中已授权的考拉账号对应 SID，留空跳过考拉转链。"}]
 # [param: {"required":false,"key":"jtk_coupon.ztk_relation_id","bool":false,"name":"折淘客淘宝渠道关系 ID","desc":"可选；授权类型要求渠道关系 ID 时填写已备案的 relation_id，不可随意编造。留空不传。"}]
 # [param: {"required":false,"key":"jtk_coupon.jtk_enabled","bool":false,"name":"启用聚推客","desc":"留空默认开启；填 false 可关闭。提供京东与其他已开通平台查询。"}]
@@ -31,7 +30,7 @@
 # [param: {"required":false,"key":"jtk_coupon.cache_seconds","bool":false,"name":"查询缓存（秒）","desc":"0～600，默认 60；0 禁用。按用户和配置隔离；更换密钥、授权或系数后自动失效。"}]
 # [param: {"required":false,"key":"jtk_coupon.rate_limit","bool":false,"name":"每用户每分钟次数","desc":"1～30，默认 8；限制商品、精选和外卖查询频率。帮助、记录不计入。"}]
 # [param: {"required":false,"key":"jtk_coupon.group_query","bool":false,"name":"群聊自动查询","desc":"留空默认开启；false 时群内发送链接不查询，需私聊；群聊永不展示管理员金额。"}]
-# [param: {"required":false,"key":"jtk_coupon.allowed_platforms","bool":false,"name":"开放的平台","desc":"留空全部；用英文逗号填写 jd,taobao,pdd,vip,kaola,douyin,kuaishou。实际成功依赖接口权限。"}]
+# [param: {"required":false,"key":"jtk_coupon.allowed_platforms","bool":false,"name":"开放的平台","desc":"留空全部；用英文逗号填写 jd,taobao,pdd,vip,kaola,kuaishou。实际成功依赖接口权限。"}]
 # [param: {"required":false,"key":"jtk_coupon.send_image","bool":true,"name":"发送商品图","desc":"查券后附一张可信商品图；关闭只发文本。"}]
 # [param: {"required":false,"key":"jtk_coupon.history_enabled","bool":false,"name":"保存查询记录","desc":"留空默认开启；false 不再保存新记录，缓存仍可使用。只保存商品标题与链接；私聊可清空。"}]
 # [param: {"required":false,"key":"jtk_coupon.mt_act_id","bool":false,"name":"美团活动 ID","desc":"管理员私聊发送 优惠券活动 美团 查看当前 ID；外卖活动使用聚推客。"}]
@@ -60,12 +59,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 BUCKET = 'jtk_coupon'
-VERSION = '2.1.5'
+VERSION = '2.1.6'
 API = 'https://api.jutuike.com'
 AGGREGATE_API = 'https://api.act.jutuike.com'
 CN = dt.timezone(dt.timedelta(hours=8))
 HELP = """🛍 优惠券查询
-直接发送购物链接、淘口令或抖音商品口令。抖音未识别时，可发送「抖音口令：分享文案」。
+直接发送购物链接或淘口令，也可以在前面加「查券」。
 返回商品、价格、优惠券和购买链接。平台提供口令时会一并返回。
 
 🛒 优惠券精选：查看当前精选商品
@@ -81,7 +80,6 @@ PLATFORMS = {
     'pdd': ('拼多多', ('pinduoduo.com', 'yangkeduo.com', 'pdd.cn')),
     'vip': ('唯品会', ('vip.com',)),
     'kaola': ('考拉', ('kaola.com',)),
-    'douyin': ('抖音', ('douyin.com', 'iesdouyin.com', 'jinritemai.com')),
     'kuaishou': ('快手', ('kuaishou.com', 'gifshow.com', 'kwaixiaodian.com')),
 }
 
@@ -126,34 +124,21 @@ def platform_of(value):
 
 TAOBAO_PASSWORD = re.compile(r'(?:￥[A-Za-z0-9]{5,40}￥|¥[A-Za-z0-9]{5,40}¥|\$[A-Za-z0-9]{5,40}\$)')
 TAOBAO_BRACKET_PASSWORD = re.compile(r'(?:\([A-Za-z0-9]{5,40}\)|（[A-Za-z0-9]{5,40}）|【[A-Za-z0-9]{5,40}】)')
-DOUYIN_PASSWORD = re.compile(r'₴[A-Za-z0-9]{5,40}₴|##[A-Za-z0-9]{5,40}##|(?<![A-Za-z0-9])[A-Za-z0-9]{5,40}[ηƞ]{2}(?![A-Za-z0-9])')
-DOUYIN_PREFIX = '抖音口令：'
 
 
 def query_platform(value):
     if TAOBAO_PASSWORD.fullmatch(value) or TAOBAO_BRACKET_PASSWORD.fullmatch(value):
         return 'taobao'
-    if value.startswith(DOUYIN_PREFIX) or (not valid_url(value) and DOUYIN_PASSWORD.search(value)):
-        return 'douyin'
     return platform_of(value)
 
 
 def extract_query(text):
     value = html.unescape(re.sub(r'^查券\s+', '', text).strip())
-    explicit = re.match(r'^抖音口令[：:\s]+(.+)$', value, re.S)
-    if explicit:
-        command = explicit.group(1).strip()
-        if len(command) > 600:
-            raise PluginError('抖音分享文案过长，请只发送一条商品口令。')
-        return DOUYIN_PREFIX + command
     if re.search(r'https?://', value, re.I):
         return extract_link(text)
-    douyin = DOUYIN_PASSWORD.findall(value)
     passwords = TAOBAO_PASSWORD.findall(value)
-    if len(douyin) + len(passwords) > 1:
+    if len(passwords) > 1:
         raise PluginError('每次请发送一个商品口令。')
-    if douyin and len(value) <= 600:
-        return value
     if passwords:
         return passwords[0]
     if TAOBAO_BRACKET_PASSWORD.fullmatch(value):
@@ -167,7 +152,7 @@ def extract_link(text):
     if len(links) > 1:
         raise PluginError('每次请发一个商品链接。')
     if not links:
-        raise PluginError('请发送商品链接、淘口令或抖音商品口令。')
+        raise PluginError('请发送商品链接或淘口令。')
     link = links[0].rstrip('，。！？；、）】》,.!?;)]')
     if len(link) > 2000 or not platform_of(link):
         raise PluginError('未识别为支持的电商分享链接，发送“返利平台”查看说明。')
@@ -365,12 +350,10 @@ def append_password(lines, data):
     password = data.get('_password')
     if not isinstance(password, str):
         return
-    douyin_command = (data.get('_source') == 'douyin' and len(password) <= 300
-        and not re.search(r'https?://|[\r\n]', password, re.I) and DOUYIN_PASSWORD.search(password))
     short_code = re.fullmatch(
-        r'(?:[￥¥$₴][A-Za-z0-9]{5,40}[￥¥$₴]|[（(【][A-Za-z0-9]{5,40}[）)】])', password
+        r'(?:[￥¥$][A-Za-z0-9]{5,40}[￥¥$]|[（(【][A-Za-z0-9]{5,40}[）)】])', password
     )
-    if douyin_command or short_code:
+    if short_code:
         lines.extend(['📋 复制口令到购物 App', password])
 
 
@@ -398,13 +381,11 @@ def product_message(data):
         after = amount(price.get('lowestCouponPrice'))
         if after is not None:
             lines.append('券后参考价：¥' + after)
-    elif data.get('_coupon_link'):
-        lines.append('🎫 有领券入口，金额以购买页面为准。')
     elif str(data.get('is_coupon')) == '0':
         lines.append('🎫 当前未查到优惠券，可查看购买页的其他优惠。')
     else:
         lines.append('🎫 暂无完整的可领取券信息，以领券页为准。')
-    lines.extend(['', '🔗 ' + ('领券购买' if usable or data.get('_coupon_link') else '购买链接'), url])
+    lines.extend(['', '🔗 ' + ('领券购买' if usable else '购买链接'), url])
     append_password(lines, data)
     alternative = data.get('_alternative') or {}
     alternative_url = valid_url(alternative.get('link'))
@@ -561,7 +542,7 @@ class Plugin:
             clients['ztk'] = ZhetaokeClient(self.setting('ztk_key'), self.setting('ztk_sid'), self.setting('ztk_pid'), timeout,
                 relation_id=self.setting('ztk_relation_id'), pdd_client_id=self.setting('pdd_client_id'),
                 pdd_client_secret=self.setting('pdd_client_secret'), pdd_pid=self.setting('pdd_pid'),
-                douyin_sid=self.setting('ztk_douyin_sid'), kaola_sid=self.setting('ztk_kaola_sid'),
+                kaola_sid=self.setting('ztk_kaola_sid'),
                 pdd_track_user=self.enabled('pdd_track_user', False))
         return ComparisonClient(clients, {key: self.number(key + '_factor', 1, 0, 1) for key in ('jtk', 'ztk')},
             self.setting('preferred_provider') or 'jtk')
@@ -570,7 +551,7 @@ class Plugin:
         return product_message(data) + (admin_details(data) if self.details_allowed() else '')
 
     def cache_key(self, sid, link):
-        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','pdd_client_id','pdd_client_secret','pdd_pid','pdd_track_user','ztk_douyin_sid','ztk_kaola_sid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
+        keys = ('pub_id','ztk_key','ztk_sid','ztk_pid','ztk_relation_id','pdd_client_id','pdd_client_secret','pdd_pid','pdd_track_user','ztk_kaola_sid','jtk_enabled','ztk_enabled','preferred_provider','jtk_factor','ztk_factor')
         config = json.dumps([self.key] + [self.setting(k) for k in keys], ensure_ascii=False)
         return hashlib.sha256((VERSION + sid + link + config).encode()).hexdigest()
 
@@ -582,7 +563,6 @@ class Plugin:
             '折淘客 Key：' + ('已配置' if self.setting('ztk_key') else '未配置'),
             '折淘客授权 SID：' + ('已配置' if self.setting('ztk_sid') else '缺少'),
             '折淘客 PID：' + ('格式有效' if re.fullmatch(r'mm_\d+_\d+_\d+', str(self.setting('ztk_pid') or '')) else '缺少或格式无效'),
-            '折淘客抖音 SID：' + ('已配置' if self.setting('ztk_douyin_sid') else '缺少'),
             '折淘客考拉 SID：' + ('已配置' if self.setting('ztk_kaola_sid') else '缺少'),
             '美团活动 ID：' + ('已配置' if self.setting('mt_act_id') else '缺少'),
             '淘宝闪购活动 ID：' + ('已配置' if self.setting('ele_act_id') else '缺少'),
@@ -609,7 +589,7 @@ class Plugin:
         if text in ('优惠券查询','优惠券帮助','优惠券菜单'):
             return HELP, ''
         if text == '支持平台':
-            return '识别京东、淘宝/天猫、拼多多、唯品会、考拉、抖音、快手。\n实际可查询范围取决于已开通的接口；部分商品可能没有优惠券。\n外卖请发送“美团外卖优惠”或“淘宝闪购优惠”。', ''
+            return '识别京东、淘宝/天猫、拼多多、唯品会、考拉、快手。\n实际可查询范围取决于已开通的接口；部分商品可能没有优惠券。\n外卖请发送“美团外卖优惠”或“淘宝闪购优惠”。', ''
         admin_command = (text in ('优惠券检测','折淘客检测','优惠券配置','拼多多授权','返利渠道','返利订单','我的返利订单')
             or text.startswith(('返利活动','优惠券活动','返利测试','优惠券测试')))
         if admin_command and (not self.admin() or not self.private()):
@@ -708,30 +688,10 @@ def pdd_error(result):
     return '折淘客拼多多拒绝转链' + ('（错误码 ' + code + '）' if code else '') + '。' + hint
 
 
-def douyin_error(result):
-    if not isinstance(result, dict):
-        return '折淘客未返回抖音有效响应。'
-    codes = []
-    for key in ('code', 'sub_code', 'status'):
-        code = str(result.get(key) or '')
-        if re.fullmatch(r'[0-9]{1,10}', code) and code not in codes:
-            codes.append(code)
-    message = ' '.join(str(result.get(key) or '') for key in ('msg', 'sub_msg', 'message', 'content')).lower()
-    if 'sid' in message or '授权' in message or 'token' in message:
-        hint = '请核对抖音授权 SID 和授权有效期。'
-    elif '口令' in message or 'command' in message:
-        hint = '接口提示口令无效或无法识别。'
-    elif '商品' in message:
-        hint = '请核对商品的推广资格。'
-    else:
-        hint = ''
-    return '折淘客未返回抖音成功状态' + ('（错误码 ' + '/'.join(codes) + '）' if codes else '') + '。' + hint
-
-
 class ZhetaokeClient:
     """Official HTTPS batch converter; JD deliberately excluded."""
     def __init__(self, key, sid='', pid='', timeout=8, transport=None, relation_id='',
-                 pdd_client_id='', pdd_client_secret='', pdd_pid='', douyin_sid='', kaola_sid='', pdd_track_user=False):
+                 pdd_client_id='', pdd_client_secret='', pdd_pid='', kaola_sid='', pdd_track_user=False):
         self.key, self.sid, self.pid = key, sid, pid
         self.timeout, self.transport = timeout, transport
         self.relation_id = str(relation_id or '').strip()
@@ -739,13 +699,11 @@ class ZhetaokeClient:
         self.pdd_client_secret = str(pdd_client_secret or '').strip()
         self.pdd_pid = str(pdd_pid or '').strip()
         self.pdd_track_user = pdd_track_user
-        self.douyin_sid = str(douyin_sid or '').strip()
         self.kaola_sid = str(kaola_sid or '').strip()
 
     def request(self, endpoint, fields):
         if endpoint not in ('open_gaoyongzhuanlian_tkl_piliang.ashx', 'open_taokeshouquaninfo.ashx', 'api_quanwang.ashx',
                 'open_pdd_zhuanlian_new.ashx', 'open_pdd_shouquan_query_new.ashx', 'open_pdd_shouquan_new.ashx',
-                'open_douyin_zhuanlian.ashx', 'open_douyin_kouling_jiexi.ashx',
                 'open_kaola_zhuanke_api_zhuanlian.ashx'):
             raise PluginError('折淘客接口不在允许列表。')
         if not self.key:
@@ -793,13 +751,9 @@ class ZhetaokeClient:
             if isinstance(result, dict) and isinstance(result.get('authority_query_response'), dict):
                 return result
             raise PluginError(pdd_error(result))
-        if isinstance(result, dict) and (
-            (endpoint in ('open_douyin_zhuanlian.ashx', 'open_douyin_kouling_jiexi.ashx') and str(result.get('code')) == '10000')
-            or (endpoint == 'open_kaola_zhuanke_api_zhuanlian.ashx' and str(result.get('code')) == '200')
-        ):
+        if (endpoint == 'open_kaola_zhuanke_api_zhuanlian.ashx'
+                and isinstance(result, dict) and str(result.get('code')) == '200'):
             return result
-        if endpoint in ('open_douyin_zhuanlian.ashx', 'open_douyin_kouling_jiexi.ashx'):
-            raise PluginError(douyin_error(result))
         if not isinstance(result, dict) or str(result.get('status')) != '200':
             # Upstream errors sometimes echo request credentials; never forward them.
             raise PluginError('折淘客未返回成功状态，请检查 Key、授权、PID 或商品权限。')
@@ -813,10 +767,10 @@ class ZhetaokeClient:
         source = query_platform(link)
         if source == 'pdd':
             return self.pdd_goods(link, user_sid)
-        if source in ('douyin', 'kaola'):
-            return self.other_goods(source, link, user_sid)
+        if source == 'kaola':
+            return self.kaola_goods(link, user_sid)
         if source not in ('taobao', 'vip'):
-            raise PluginError('折淘客当前支持淘宝/天猫、拼多多、唯品会、抖音和考拉。')
+            raise PluginError('折淘客当前支持淘宝/天猫、拼多多、唯品会和考拉。')
         if not self.sid or not re.fullmatch(r'mm_\d+_\d+_\d+', str(self.pid)):
             raise PluginError('折淘客缺少授权 SID 或有效 PID（mm_三段格式）。')
         fields = {'sid': self.sid, 'pid': self.pid, 'tkl': link}
@@ -904,67 +858,20 @@ class ZhetaokeClient:
                 break
         return ' 备案查询：' + '，'.join(results) + '。'
 
-    def other_goods(self, source, link, user_sid):
-        # These providers accept an 11-digit tracking field, separate from the stored SID.
+    def kaola_goods(self, link, user_sid):
+        if not self.kaola_sid:
+            raise PluginError('请配置折淘客考拉授权 SID。')
         tracking = str(int(hashlib.sha256(user_sid.encode()).hexdigest(), 16) % 10**11).zfill(11)
-        if source == 'douyin':
-            if not self.douyin_sid:
-                raise PluginError('请配置折淘客抖音授权 SID。')
-            command = link[len(DOUYIN_PREFIX):] if link.startswith(DOUYIN_PREFIX) else link
-            fields = {'sid': self.douyin_sid, 'product_url': command,
-                'need_share_link': 'true', 'use_coupon': 'true'}
-            try:
-                result = self.request('open_douyin_zhuanlian.ashx', fields)
-            except PluginError as direct_error:
-                if valid_url(link) or not str(direct_error).startswith('折淘客未返回抖音成功状态'):
-                    raise
-                try:
-                    product_url = self.douyin_product_link(command)
-                    result = self.request('open_douyin_zhuanlian.ashx', dict(fields, product_url=product_url))
-                except PluginError as fallback_error:
-                    raise PluginError('抖音直转：%s；解析兜底：%s' % (direct_error, fallback_error)) from None
-            outer = result.get('data')
-            row = outer.get('data') if isinstance(outer, dict) else None
-            row = row if isinstance(row, dict) else {}
-            coupon = row.get('coupon_link')
-            if isinstance(coupon, dict):
-                url = valid_url(coupon.get('share_link'))
-                parts = urllib.parse.urlsplit(url)
-                if platform_of(url) == 'douyin' and parts.path not in ('', '/'):
-                    return {'skuName': '抖音商品', 'link': url, '_source': source,
-                        '_provider': 'ztk', '_link_only': True, '_coupon_link': True,
-                        '_password': safe_text(coupon.get('share_command'), 300)}
-            urls = (row.get('dy_zlink'), row.get('share_link'))
-            command = row.get('dy_password')
-            password = safe_text(command, 300) if isinstance(command, str) else ''
-        else:
-            if not self.kaola_sid:
-                raise PluginError('请配置折淘客考拉授权 SID。')
-            result = self.request('open_kaola_zhuanke_api_zhuanlian.ashx', {'sid': self.kaola_sid,
-                'targetUrl': link, 'trackingCode2': tracking})
-            rows = result.get('data')
-            row = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
-            urls = (row.get('shortLink'), row.get('shareLink'))
-            password = ''
-        for candidate in urls:
+        result = self.request('open_kaola_zhuanke_api_zhuanlian.ashx', {'sid': self.kaola_sid,
+            'targetUrl': link, 'trackingCode2': tracking})
+        rows = result.get('data')
+        row = rows[0] if isinstance(rows, list) and rows and isinstance(rows[0], dict) else {}
+        for candidate in (row.get('shortLink'), row.get('shareLink')):
             url = valid_url(candidate)
-            if url and platform_of(url) == source:
-                return {'skuName': PLATFORMS[source][0] + '商品', 'link': url, '_source': source,
-                    '_provider': 'ztk', '_link_only': True, '_password': password}
+            if url and platform_of(url) == 'kaola':
+                return {'skuName': PLATFORMS['kaola'][0] + '商品', 'link': url, '_source': 'kaola',
+                    '_provider': 'ztk', '_link_only': True}
         raise PluginError('未返回有效商品链接。')
-
-    def douyin_product_link(self, command):
-        response = self.request('open_douyin_kouling_jiexi.ashx', {'sid': self.douyin_sid, 'command': command})
-        data = response.get('data')
-        info = data.get('command_info') if isinstance(data, dict) else None
-        product = info.get('product_info') if isinstance(info, dict) else None
-        share = product.get('share_info') if isinstance(product, dict) else None
-        if isinstance(share, dict):
-            for key in ('share_link', 'zlink'):
-                url = valid_url(share.get(key))
-                if url and platform_of(url) == 'douyin' and not url.endswith('='):
-                    return url
-        raise PluginError('抖音口令没有解析到可转链的商品，请发送抖音商品分享链接。')
 
     def find_coupon(self, original, user_sid):
         if original.get('_source') != 'taobao' or not self.sid or not re.fullmatch(r'mm_\d+_\d+_\d+', str(self.pid)):
@@ -1068,7 +975,7 @@ class ComparisonClient:
         source = query_platform(link)
         if valid_url(link):
             clients = {k: v for k, v in self.clients.items()
-                if k != 'ztk' or source in ('taobao', 'pdd', 'vip', 'douyin', 'kaola')}
+                if k != 'ztk' or source in ('taobao', 'pdd', 'vip', 'kaola')}
         else:
             clients = {k: v for k, v in self.clients.items() if k == 'ztk'}
             if not clients:
